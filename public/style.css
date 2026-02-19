@@ -535,7 +535,6 @@ body {
     background: hsl(var(--surface-hover) / 0.6);
 }
 
-
 .tbl-row--indent1 .tbl-col--name {
     padding-left: 30px;
 }
@@ -547,11 +546,11 @@ body {
 .tbl-row--service {
     background: hsl(var(--surface-2) / 0.2);
     font-size: 11.5px;
-    max-height: 40px;
-    min-height: 40px;
+    max-height: 42px;
+    min-height: 42px;
     overflow: hidden;
-    padding-top: 5px;
-    padding-bottom: 5px;
+    padding-top: 10px;
+    padding-bottom: 18px;
 }
 
 .tbl-row--service:hover {
