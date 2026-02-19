@@ -2,6 +2,15 @@
 
 A high-performance, asynchronous network monitoring and infrastructure health check system built with Rust and Tokio. Monitor multiple servers and services across your infrastructure with real-time status tracking, comprehensive health checks, and an intuitive web dashboard.
 
+## Live Preview
+
+A public instance of the dashboard is available for preview:
+> **Note:** If the server permits image linking, a live snapshot can be viewed directly below:
+>
+> ![Dashboard Preview](http://5.175.246.32:3000/)
+
+(This link provides a quick way to see the dashboard without running the service locally.)
+
 ## Features
 
 - **Multi-Protocol Health Checks**: Support for ICMP Ping, TCP port connectivity, and UDP port monitoring
