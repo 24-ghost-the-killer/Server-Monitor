@@ -5,6 +5,9 @@ A high-performance, asynchronous network monitoring and infrastructure health ch
 ## Live Preview
 
 A public instance of the dashboard is available for preview:
+
+[http://5.175.246.32:3000/](http://5.175.246.32:3000/)
+
 > **Note:** If the server permits image linking, a live snapshot can be viewed directly below:
 >
 > ![Dashboard Preview](http://5.175.246.32:3000/)
@@ -191,6 +194,7 @@ The dashboard displays:
 - Packet loss statistics
 - Last check timestamp
 - Check categories and organization
+
 
 ### API Endpoints
 
