@@ -7,11 +7,6 @@ A high-performance, asynchronous network monitoring and infrastructure health ch
 A public instance of the dashboard is available for preview:
 
 [http://5.175.246.32:3000/](http://5.175.246.32:3000/)
-
-> **Note:** If the server permits image linking, a live snapshot can be viewed directly below:
->
-> ![Dashboard Preview](http://5.175.246.32:3000/)
-
 (This link provides a quick way to see the dashboard without running the service locally.)
 
 ## Features
