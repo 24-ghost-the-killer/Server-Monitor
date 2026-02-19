@@ -1,6 +1,7 @@
 {
     "check_interval": 20,
     "max_concurrency": 500,
+    "api_port": 3001,
     "categories": [
         {
             "name": "Mine Servers",
