@@ -21,23 +21,6 @@
                             "timeout_ms": 1000
                         }
                     ]
-                },
-                {
-                    "name": "XPvP Server",
-                    "address": "5.175.246.20",
-                    "max_retries": 2,
-                    "checks": [
-                        {
-                            "type": "TcpPort",
-                            "port": 3389,
-                            "timeout_ms": 1500
-                        },
-                        {
-                            "type": "TcpPort",
-                            "port": 30120,
-                            "timeout_ms": 1000
-                        }
-                    ]
                 }
             ]
         }
