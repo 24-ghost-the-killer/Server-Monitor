@@ -537,22 +537,34 @@ body {
 
 
 .tbl-row--indent1 .tbl-col--name {
-    padding-left: 32px;
+    padding-left: 30px;
 }
 
 .tbl-row--indent2 .tbl-col--name {
-    padding-left: 62px;
-}
-
-.tbl-row--service .tbl-col--name {
-    padding-left: 35px;
+    padding-left: 70px;
 }
 
 .tbl-row--service {
-    background: hsl(var(--surface-2) / 0.4);
+    background: hsl(var(--surface-2) / 0.2);
+    font-size: 11.5px;
+    max-height: 40px;
+    min-height: 40px;
+    overflow: hidden;
+    padding-top: 5px;
+    padding-bottom: 5px;
 }
 
 .tbl-row--service:hover {
+    background: hsl(var(--surface-hover) / 0.4);
+}
+
+.tbl-row--ip-group {
+    background: hsl(var(--surface-2) / 0.2);
+    cursor: pointer;
+    font-size: 11.5px;
+}
+
+.tbl-row--ip-group:hover {
     background: hsl(var(--surface-hover) / 0.4);
 }
 
@@ -568,8 +580,6 @@ body {
     gap: 0;
     overflow: hidden;
 }
-
-
 
 .tbl-col--detail {
     overflow: hidden;
@@ -592,7 +602,7 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 12.5px;
+    font-size: 11.5px;
     color: hsl(var(--foreground));
 }
 
@@ -600,8 +610,9 @@ body {
     display: flex;
     align-items: center;
     gap: 7px;
+    font-size: 10px;
+    height: 24px;
 }
-
 
 .status-dot {
     width: 7px;
@@ -655,9 +666,9 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 10px 3px 8px;
+    padding: 2px 8px;
     border-radius: 20px;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.05em;
     font-family: 'JetBrains Mono', monospace;
@@ -712,7 +723,7 @@ body {
 
 .latency-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: 10px;
     color: hsl(var(--foreground-muted));
 }
 

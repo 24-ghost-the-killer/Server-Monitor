@@ -73,10 +73,11 @@ impl Monitor {
                             CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
                         };
                         
-                        let key = format!("{}-{}-{}", server.name, address, check_type_name);
+                        let key = format!("{}-{}-{}-{}", server.name, server.address, address, check_type_name);
                         state.last_results.entry(key).or_insert(CheckResult {
                             category: category.name.clone(),
                             server_name: server.name.clone(),
+                            parent_address: server.address.clone(),
                             target_address: address.clone(),
                             timestamp: now,
                             check_type: check_type_name,
@@ -124,6 +125,10 @@ impl Monitor {
                                 res.category = cat_name;
                                 res
                             }));
+
+                            // Pacing: Add a small delay between spawns to prevent network saturation/throttling
+                            // Especially important when scanning subnets (e.g. /24)
+                            tokio::time::sleep(Duration::from_millis(10)).await;
                         }
                     }
                 }
@@ -196,7 +201,6 @@ impl Monitor {
                     while let Some((p_status, p_latency, name)) = discovery_tasks.next().await {
                         if p_status {
                             status = true;
- 
                             latency = None; 
                             loss = Some(0.0);
                             msg = format!("ICMP Filtered (Verified via {} [{}ms])", 
@@ -210,6 +214,7 @@ impl Monitor {
                 CheckResult {
                     category: String::new(),
                     server_name: server.name.clone(),
+                    parent_address: server.address.clone(),
                     target_address: target_address.to_string(),
                     timestamp,
                     check_type: "Ping".into(),
@@ -224,6 +229,7 @@ impl Monitor {
                 CheckResult {
                     category: String::new(),
                     server_name: server.name.clone(),
+                    parent_address: server.address.clone(),
                     target_address: target_address.to_string(),
                     timestamp,
                     check_type: format!("TCP:{}", port),
@@ -238,6 +244,7 @@ impl Monitor {
                 CheckResult {
                     category: String::new(),
                     server_name: server.name.clone(),
+                    parent_address: server.address.clone(),
                     target_address: target_address.to_string(),
                     timestamp,
                     check_type: format!("UDP:{}", port),
@@ -313,7 +320,7 @@ impl Monitor {
     }
 
     async fn process_result(self: &Arc<Self>, result: CheckResult) {
-        let key = format!("{}-{}-{}", result.server_name, result.target_address, result.check_type);
+        let key = format!("{}-{}-{}-{}", result.server_name, result.parent_address, result.target_address, result.check_type);
         let new_status = if result.status { Status::Up } else { Status::Down };
         
         let mut state_lock = self.state.lock().await;

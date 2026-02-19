@@ -12,6 +12,7 @@ pub enum Status {
 pub struct CheckResult {
     pub category: String,
     pub server_name: String,
+    pub parent_address: String,
     pub target_address: String,
     pub timestamp: DateTime<Utc>,
     pub check_type: String,
