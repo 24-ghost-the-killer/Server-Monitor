@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPECTRA - Infrastructure Intelligence</title>
+    <meta name="description" content="Enterprise-grade server monitoring and infrastructure intelligence dashboard.">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <div class="app-shell">
+        <header class="nav-bar">
+            <div class="nav-left">
+                <div>
+                    <div class="brand-name">SPECTRA</div>
+                    <div class="brand-tagline">Infrastructure Intelligence</div>
+                </div>
+            </div>
+
+            <div class="nav-center">
+                <div class="search-icon-wrapper">
+                    <i data-lucide="search" size="13" class="search-icon"></i>
+                    <input id="search-box" class="search-input" type="text"
+                        placeholder="Search infrastructure points (IP, Name, Check)..." autocomplete="off">
+                </div>
+            </div>
+
+            <div class="nav-right">
+                <div id="engine-status" class="engine-badge synced">
+                    <i data-lucide="refresh-cw" size="11" id="sync-icon"></i>
+                    <span id="sync-text">ENGINE: SYNCED</span>
+                    <span id="sync-timer" class="mono-text"
+                        style="font-size: 9px; opacity: 0.8; margin-left: 4px;"></span>
+                </div>
+                <div class="clock-badge">
+                    <i data-lucide="clock" size="11"></i>
+                    <span id="clock-text" class="mono-text">00:00:00</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon cyan"><i data-lucide="server" size="17"></i></div>
+                    <div class="stat-label">Total Nodes</div>
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-sub">infrastructure nodes</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon green"><i data-lucide="wifi" size="17"></i></div>
+                    <div class="stat-label">Healthy Nodes</div>
+                    <div class="stat-value" id="stat-up" style="color: hsl(var(--status-online-bright))">0</div>
+                    <div class="stat-sub">fully operational</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon red"><i data-lucide="alert-triangle" size="17"></i></div>
+                    <div class="stat-label">Offline & Degraded</div>
+                    <div class="stat-value" id="stat-down" style="color: hsl(var(--status-degraded-bright))">0</div>
+                    <div class="stat-sub">need attention</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon amber"><i data-lucide="zap" size="17"></i></div>
+                    <div class="stat-label">Average Latency</div>
+                    <div class="stat-value" id="stat-latency">0ms</div>
+                    <div class="stat-sub">across all nodes</div>
+                </div>
+            </div>
+
+            <div id="sections-container">
+                <div class="server-section online-section">
+                    <div class="section-header" onclick="toggleNode('section-operational')">
+                        <div class="section-title-wrapper">
+                            <i data-lucide="shield" size="15" style="color: hsl(var(--status-online-bright))"></i>
+                            <span class="section-title-text">Operational Infrastructure</span>
+                            <span class="section-count online" id="stat-up-badge">0</span>
+                        </div>
+                        <i data-lucide="chevron-down" size="15" class="chevron open" id="chevron-operational"></i>
+                    </div>
+                    <div id="online-categories-container" class="section-content">
+                    </div>
+                </div>
+
+                <div class="server-section degraded-section">
+                    <div class="section-header" onclick="toggleNode('section-degraded')">
+                        <div class="section-title-wrapper">
+                            <i data-lucide="alert-triangle" size="15"
+                                style="color: hsl(var(--status-degraded-bright))"></i>
+                            <span class="section-title-text">Offline & Degraded</span>
+                            <span class="section-count degraded" id="stat-down-badge">0</span>
+                        </div>
+                        <i data-lucide="chevron-down" size="15" class="chevron open" id="chevron-degraded"></i>
+                    </div>
+                    <div id="offline-categories-container" class="section-content">
+                    </div>
+                </div>
+            </div>
+
+            <footer class="dash-footer">
+                <span>SPECTRA v3.1.0</span>
+            </footer>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
