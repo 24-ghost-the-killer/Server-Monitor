@@ -1,19 +1,21 @@
 {
     "check_interval": 20,
     "max_concurrency": 99,
-    "api_port": 3001,
+    "api_port": 3000,
+    "webhook_url": null,
+    "ntfy_topic": "test_monitoring_system",
     "categories": [
         {
             "name": "Nyru Infrastructure",
             "servers": [
                 {
                     "name": "Nyru Hypervisors #1",
-                    "address": "5.175.246.0/24",
+                    "address": "5.175.246.1",
                     "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
-                            "count": 2,
+                            "count": 4,
                             "timeout_ms": 1500
                         }
                     ]
@@ -25,7 +27,7 @@
                     "checks": [
                         {
                             "type": "Ping",
-                            "count": 2,
+                            "count": 4,
                             "timeout_ms": 1500
                         }
                     ]
@@ -37,7 +39,7 @@
                     "checks": [
                         {
                             "type": "Ping",
-                            "count": 2,
+                            "count": 4,
                             "timeout_ms": 1500
                         }
                     ]
@@ -55,11 +57,19 @@
                         {
                             "type": "TcpPort",
                             "port": 22,
+                            "count": 2,
                             "timeout_ms": 1000
                         },
                         {
                             "type": "TcpPort",
                             "port": 30120,
+                            "count": 2,
+                            "timeout_ms": 1000
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 12312,
+                            "count": 2,
                             "timeout_ms": 1000
                         }
                     ]

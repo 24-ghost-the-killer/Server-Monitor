@@ -5,6 +5,7 @@ pub struct MonitorConfig {
     pub categories: Vec<Category>,
     pub check_interval: u64,
     pub webhook_url: Option<String>,
+    pub ntfy_topic: Option<String>,
     #[serde(default = "default_api_port")]
     pub api_port: u16,
     #[serde(default = "default_max_concurrency")]
@@ -42,11 +43,15 @@ pub enum CheckType {
     },
     TcpPort {
         port: u16,
+        #[serde(default = "default_ping_count")]
+        count: u32,
         #[serde(default = "default_timeout")]
         timeout_ms: u64,
     },
     UdpPort {
         port: u16,
+        #[serde(default = "default_ping_count")]
+        count: u32,
         #[serde(default = "default_timeout")]
         timeout_ms: u64,
     },

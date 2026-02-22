@@ -1,7 +1,7 @@
 let telemetry = [];
 let expandedNodes = new Set(['section-operational', 'section-degraded', 'initialized']);
 let query = "";
-const REFRESH_INTERVAL_SEC = 30;
+const REFRESH_INTERVAL_SEC = 5;
 let lastFetchSec = -1;
 let isActivelyFetching = false;
 
@@ -28,8 +28,8 @@ function compareIPs(a, b) {
 }
 
 function getLat(check) {
-    if (typeof check.latency_ms === 'number' && check.latency_ms > 0) return check.latency_ms;
-    const match = (check.message || "").match(/\[(\d+\.?\d*)ms\]/);
+    if (typeof check.latency_ms === 'number' && check.latency_ms >= 0) return check.latency_ms;
+    const match = (check.message || "").match(/(?:\[|@ | - )(\d+\.?\d*)ms/);
     if (match) return parseFloat(match[1]);
     return 0;
 }
@@ -40,7 +40,7 @@ function render() {
     if (!onlineContainer || !offlineContainer) return;
 
     if (telemetry.length === 0) {
-        const loading = '<div style="padding: 1.5rem; color: var(--foreground-subtle);">Synchronizing infra...</div>';
+        const loading = '<div style="padding: 1.5rem; color: var(--foreground-subtle);">CALIBRATING INFRASTRUCTURE MESH...</div>';
         onlineContainer.innerHTML = loading;
         offlineContainer.innerHTML = loading;
         return;
@@ -101,17 +101,19 @@ function renderTree(items, sectionId) {
                 <div class="tbl-row category-header" onclick="toggleNode('${catId}')">
                     <div class="tbl-col tbl-col--name">
                         <div class="node-name-cell" style="font-weight: 700;">
-                            <i data-lucide="chevron-right" size="11" class="chevron ${isCatExpanded ? 'open' : ''}" style="margin-right: 8px;"></i>
-                            ${catName.toUpperCase()}
+                            <div class="expand-btn-wrapper">
+                                <i data-lucide="chevron-right" size="12" class="chevron ${isCatExpanded ? 'open' : ''}"></i>
+                            </div>
+                            <span class="node-name-text">${catName.toUpperCase()}</span>
                         </div>
                     </div>
                 </div>
                 <div class="category-content" style="display: ${isCatExpanded ? 'block' : 'none'}">
                     <div class="tbl-head">
-                        <div class="tbl-col tbl-col--name">Infrastructure Point</div>
-                        <div class="tbl-col tbl-col--status">Status</div>
-                        <div class="tbl-col tbl-col--latency">Metric</div>
-                        <div class="tbl-col tbl-col--detail">Details</div>
+                        <div class="tbl-col tbl-col--name">TERMINAL RESOURCE</div>
+                        <div class="tbl-col tbl-col--status">STATUS</div>
+                        <div class="tbl-col tbl-col--latency">TELEMETRY</div>
+                        <div class="tbl-col tbl-col--detail">DIAGNOSIS</div>
                     </div>
                     <div class="tbl-body">
                         ${groupKeys.map(gKey => {
@@ -137,6 +139,11 @@ function renderServerGroup(sName, parentAddr, items, catId) {
     const clusterStatus = items.every(i => i.status);
     const clusterPings = items.map(i => getLat(i)).filter(l => l > 0);
     const avgLatency = clusterPings.length > 0 ? (clusterPings.reduce((a, c) => a + c, 0) / clusterPings.length).toFixed(1) + 'ms' : '--';
+
+    const clusterLossItems = items.map(i => i.packet_loss).filter(l => l !== null && typeof l === 'number');
+    const avgLossVal = clusterLossItems.length > 0 ? (clusterLossItems.reduce((a, c) => a + c, 0) / clusterLossItems.length) : null;
+    const avgLossText = avgLossVal !== null ? avgLossVal.toFixed(1) + '%' : '--';
+
     let status = clusterStatus ? "online" : "degraded";
 
     // Header displays the subnet/range (parentAddr) as requested
@@ -146,19 +153,30 @@ function renderServerGroup(sName, parentAddr, items, catId) {
         <div class="tbl-row tbl-row--server" onclick="event.stopPropagation(); toggleNode('${groupKey}')">
             <div class="tbl-col tbl-col--name">
                 <div class="node-name-cell">
-                    <button class="expand-btn">
-                        <i data-lucide="chevron-right" size="10" class="chevron ${isExpanded ? 'open' : ''}"></i>
-                    </button>
+                    <div class="expand-btn-wrapper">
+                        <button class="expand-btn">
+                            <i data-lucide="chevron-right" size="10" class="chevron ${isExpanded ? 'open' : ''}"></i>
+                        </button>
+                    </div>
                     <span class="node-name-text">${displayName}</span>
                 </div>
             </div>
             <div class="tbl-col tbl-col--status">
-                <span class="status-badge ${status}"><span class="status-dot ${status}"></span>${status.toUpperCase()}</span>
+                <span class="status-badge ${status}"><span class="status-dot ${status}"></span>${status === 'online' ? 'OPERATIONAL' : 'DEGRADED'}</span>
             </div>
-            <div class="tbl-col tbl-col--latency"><span class="latency-value">${avgLatency}</span></div>
+            <div class="tbl-col tbl-col--latency">
+                <div class="metric-suite">
+                    <span class="latency-value">${avgLatency}</span>
+                    ${avgLossVal !== null ? `
+                        <div class="loss-box ${avgLossVal === 0 ? 'stable' : ''}">
+                            ${avgLossVal.toFixed(1)}%
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
             <div class="tbl-col tbl-col--detail">
-                <span style="color: hsl(var(--foreground-subtle));">
-                    ${isSubnet ? `${new Set(items.map(i => i.target_address)).size} nodes in subnet` : "Dedicated Node"}
+                <span style="color: hsl(var(--foreground-subtle)); font-size: 10px; letter-spacing: 0.02em;">
+                    ${isSubnet ? `CLUSTER: ${new Set(items.map(i => i.target_address)).size} ACTIVE NODES` : "TERMINAL: ISOLATED ENDPOINT"}
                 </span>
             </div>
         </div>
@@ -188,17 +206,30 @@ function renderServerGroup(sName, parentAddr, items, catId) {
                     <div class="tbl-row tbl-row--ip-group tbl-row--indent1" onclick="event.stopPropagation(); toggleNode('${ipKey}')">
                         <div class="tbl-col tbl-col--name">
                             <div class="node-name-cell">
-                                <button class="expand-btn">
-                                    <i data-lucide="chevron-right" size="10" class="chevron ${isIpExpanded ? 'open' : ''}"></i>
-                                </button>
+                                <div class="expand-btn-wrapper">
+                                    <button class="expand-btn">
+                                        <i data-lucide="chevron-right" size="10" class="chevron ${isIpExpanded ? 'open' : ''}"></i>
+                                    </button>
+                                </div>
                                 <span class="node-name-text">${ip}</span>
                             </div>
                         </div>
                         <div class="tbl-col tbl-col--status">
-                            <span class="status-badge ${status}"><span class="status-dot ${status}"></span>${status.toUpperCase()}</span>
+                            <span class="status-badge ${status}"><span class="status-dot ${status}"></span>${status === 'online' ? 'OPERATIONAL' : 'DEGRADED'}</span>
                         </div>
                         <div class="tbl-col tbl-col--latency">
-                            <span class="latency-value" style="opacity: 0.8;">${ipAvgLat}</span>
+                            <div class="metric-suite">
+                                <span class="latency-value" style="opacity: 0.8;">${ipAvgLat}</span>
+                                ${(() => {
+                        const ipLosses = ipItems.map(i => i.packet_loss).filter(l => l !== null && typeof l === 'number');
+                        const ipAvgLoss = ipLosses.length > 0 ? (ipLosses.reduce((a, c) => a + c, 0) / ipLosses.length) : 0;
+                        return `
+                                        <div class="loss-box ${ipAvgLoss === 0 ? 'stable' : ''}" style="opacity: 0.7;">
+                                            ${ipAvgLoss.toFixed(1)}%
+                                        </div>
+                                    `;
+                    })()}
+                            </div>
                         </div>
                         <div class="tbl-col tbl-col--detail"></div>
                     </div>
@@ -224,21 +255,33 @@ function renderCheckRow(check, indentClass) {
     let cStatus = check.status ? "online" : "offline";
     let cLatVal = getLat(check);
     let cLat = cLatVal > 0 ? cLatVal.toFixed(2) + 'ms' : '--';
-    const isSmartVerified = (check.message || "").includes("Verified via");
+    const isSmartVerified = (check.message || "").toLowerCase().includes("verified via");
+    const isFault = (check.message || "").toLowerCase().includes("fault") || (check.message || "").toLowerCase().includes("loss");
 
     return `
         <div class="tbl-row--service ${indentClass} tbl-row">
             <div class="tbl-col tbl-col--name">
-                <div class="tree-indent-svc">
-                    <i data-lucide="${getIcon(check.check_type || "")}" size="10" style="color: hsl(var(--foreground-subtle))"></i>
-                    <span class="node-name-text" style="color: hsl(var(--foreground-muted));">${check.check_type}</span>
+                <div class="node-name-cell">
+                    <div class="expand-btn-wrapper" style="border: none; background: transparent;">
+                        <i data-lucide="${getIcon(check.check_type || "")}" size="10" style="color: hsl(var(--foreground-subtle))"></i>
+                    </div>
+                    <span class="node-name-text" style="color: hsl(var(--foreground-muted)); font-size: 11px;">${check.check_type}</span>
                 </div>
             </div>
-            <div class="tbl-col tbl-col--status"><span class="status-badge ${cStatus}"><span class="status-dot ${cStatus}"></span>${cStatus.toUpperCase()}</span></div>
-            <div class="tbl-col tbl-col--latency"><span class="latency-value">${cLat}</span></div>
+            <div class="tbl-col tbl-col--status"><span class="status-badge ${cStatus}"><span class="status-dot ${cStatus}"></span>${cStatus === 'online' ? 'ACTIVE' : 'OFFLINE'}</span></div>
+            <div class="tbl-col tbl-col--latency">
+                <div class="metric-suite">
+                    <span class="latency-value">${cLat}</span>
+                    ${check.packet_loss !== null && typeof check.packet_loss === 'number' ? `
+                        <div class="loss-box ${check.packet_loss === 0 ? 'stable' : ''}">
+                            ${check.packet_loss.toFixed(1)}%
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
             <div class="tbl-col tbl-col--detail">
-                <span style="color: ${isSmartVerified ? 'hsl(var(--status-online-bright))' : 'hsl(var(--foreground-subtle))'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${check.message}
+                <span style="color: ${isSmartVerified ? 'hsl(var(--status-online-bright))' : isFault ? 'hsl(var(--status-degraded-bright))' : 'hsl(var(--foreground-subtle))'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
+                    ${check.message.toUpperCase()}
                 </span>
             </div>
         </div>
@@ -300,7 +343,7 @@ async function fetchTelemetry(showVisuals = true) {
             engineBadge.classList.remove('synced');
             engineBadge.classList.add('syncing');
         }
-        if (syncText) syncText.innerText = "ENGINE: FETCHING";
+        if (syncText) syncText.innerText = "MESH: PULLING TELEMETRY";
         if (timer) timer.style.display = 'none';
     }
 
@@ -320,7 +363,7 @@ async function fetchTelemetry(showVisuals = true) {
         let healthyNodes = 0, failedNodes = 0, syncingNodes = 0;
         Object.keys(hostsMap).forEach(ip => {
             const checks = hostsMap[ip];
-            const isSyncing = checks.some(c => (c.message || "").includes("Synchronizing"));
+            const isSyncing = checks.some(c => (c.message || "").includes("Awaiting"));
             const isAllUp = checks.every(c => c.status);
             if (isSyncing) syncingNodes++;
             else if (isAllUp) healthyNodes++;
@@ -341,7 +384,7 @@ async function fetchTelemetry(showVisuals = true) {
         render();
         safeSetText('last-sync-time', new Date().toLocaleTimeString());
 
-        const finalSyncText = syncingNodes > 0 ? `ENGINE: SYNCING (${syncingNodes})` : 'ENGINE: SYNCED';
+        const finalSyncText = syncingNodes > 0 ? `MESH: SYNCHRONIZING (${syncingNodes})` : 'MESH: SYNCHRONIZED';
         const isSyncing = syncingNodes > 0;
 
         const syncSuccess = () => {
@@ -379,7 +422,7 @@ async function fetchTelemetry(showVisuals = true) {
         console.error("Failed to fetch server data", err);
         setTimeout(() => {
             isActivelyFetching = false;
-            if (syncText) syncText.innerText = "ENGINE: OFFLINE";
+            if (syncText) syncText.innerText = "MESH: CONNECTION FAULT";
             if (engineBadge) engineBadge.classList.remove('refreshing');
             if (timer) timer.style.display = 'inline-flex';
         }, 1000);

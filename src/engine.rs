@@ -84,7 +84,7 @@ impl Monitor {
                             status: false,
                             latency_ms: None,
                             packet_loss: None,
-                            message: "Synchronizing status...".into(),
+                            message: "Awaiting Infrastructure Handshake...".into(),
                         });
                     }
                 }
@@ -201,9 +201,9 @@ impl Monitor {
                     while let Some((p_status, p_latency, name)) = discovery_tasks.next().await {
                         if p_status {
                             status = true;
-                            latency = None; 
+                            latency = p_latency; 
                             loss = Some(0.0);
-                            msg = format!("ICMP Filtered (Verified via {} [{}ms])", 
+                            msg = format!("ICMP Filtered (Handshake verified via {} - {}ms)", 
                                 name, 
                                 p_latency.map_or("N/A".to_string(), |l| format!("{:.1}", l)));
                             break;
@@ -224,8 +224,8 @@ impl Monitor {
                     message: msg,
                 }
             }
-            CheckType::TcpPort { port, timeout_ms } => {
-                let (status, latency, msg) = self.check_tcp_port(target_address, *port, *timeout_ms).await;
+            CheckType::TcpPort { port, count, timeout_ms } => {
+                let (status, latency, loss, msg) = self.check_tcp_port(target_address, *port, *count, *timeout_ms).await;
                 CheckResult {
                     category: String::new(),
                     server_name: server.name.clone(),
@@ -235,12 +235,12 @@ impl Monitor {
                     check_type: format!("TCP:{}", port),
                     status,
                     latency_ms: latency,
-                    packet_loss: None,
+                    packet_loss: Some(loss),
                     message: msg,
                 }
             }
-            CheckType::UdpPort { port, timeout_ms: _ } => {
-                let (status, latency, msg) = self.check_udp_port(target_address, *port).await;
+            CheckType::UdpPort { port, count, timeout_ms } => {
+                let (status, latency, loss, msg) = self.check_udp_port(target_address, *port, *count, *timeout_ms).await;
                 CheckResult {
                     category: String::new(),
                     server_name: server.name.clone(),
@@ -250,7 +250,7 @@ impl Monitor {
                     check_type: format!("UDP:{}", port),
                     status,
                     latency_ms: latency,
-                    packet_loss: None,
+                    packet_loss: Some(loss),
                     message: msg,
                 }
             }
@@ -268,54 +268,105 @@ impl Monitor {
         let mut pinger = self.ping_client.pinger(ip, pinger_id).await;
         pinger.timeout(Duration::from_millis(timeout_ms));
 
+        let mut received = 0;
+        let mut total_latency = 0.0;
+
         for i in 0..count {
             match pinger.ping(PingSequence(i as u16), &payload).await {
                 Ok((_, latency)) => {
-                    let lat_ms = latency.as_secs_f64() * 1000.0;
-                    return (true, Some(lat_ms), Some(0.0), "ICMP Response OK".into());
+                    received += 1;
+                    total_latency += latency.as_secs_f64() * 1000.0;
                 }
-                Err(_) => {
-                    if i < count - 1 { 
-                        tokio::time::sleep(Duration::from_millis(50)).await; 
-                    }
-                }
+                Err(_) => {}
+            }
+            if i < count - 1 { 
+                tokio::time::sleep(Duration::from_millis(100)).await; 
             }
         }
-        (false, None, Some(100.0), "Request Timeout (Packet Loss 100%)".into())
+
+        let loss = ((count - received) as f64 / count as f64) * 100.0;
+        if received > 0 {
+            (true, Some(total_latency / received as f64), Some(loss), "ICMP Pathing: Verified".into())
+        } else {
+            (false, None, Some(100.0), "Signal Loss Detected".into())
+        }
     }
 
     async fn raw_tcp_check(address: &str, port: u16, timeout_ms: u64) -> (bool, Option<f64>, String) {
         let addr = format!("{}:{}", address, port);
         let start = std::time::Instant::now();
         match tokio::time::timeout(Duration::from_millis(timeout_ms), TcpStream::connect(&addr)).await {
-            Ok(Ok(_)) => (true, Some(start.elapsed().as_secs_f64() * 1000.0), "TCP Handshake Success".into()),
-            Ok(Err(e)) => (false, None, format!("Connection Refused: {}", e)),
-            Err(_) => (false, None, "Port Timeout".into()),
+            Ok(Ok(_)) => (true, Some(start.elapsed().as_secs_f64() * 1000.0), "TCP Interface: Established".into()),
+            Ok(Err(e)) => (false, None, format!("Peer Reject: {}", e)),
+            Err(_) => (false, None, "Request Timeout".into()),
         }
     }
 
-    async fn check_tcp_port(&self, address: &str, port: u16, timeout_ms: u64) -> (bool, Option<f64>, String) {
-        Self::raw_tcp_check(address, port, timeout_ms).await
+    async fn check_tcp_port(&self, address: &str, port: u16, count: u32, timeout_ms: u64) -> (bool, Option<f64>, f64, String) {
+        let mut received = 0;
+        let mut total_latency = 0.0;
+        let mut last_error = String::from("TCP Handshake Failure");
+
+        for i in 0..count {
+            let (status, latency, msg) = Self::raw_tcp_check(address, port, timeout_ms).await;
+            if status {
+                received += 1;
+                total_latency += latency.unwrap_or(0.0);
+            } else {
+                last_error = msg;
+            }
+            if i < count - 1 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+
+        let loss = ((count - received) as f64 / count as f64) * 100.0;
+        if received > 0 {
+            (true, Some(total_latency / received as f64), loss, "TCP Interface: Established".into())
+        } else {
+            (false, None, 100.0, last_error)
+        }
     }
 
-    async fn check_udp_port(&self, address: &str, port: u16) -> (bool, Option<f64>, String) {
-        let addr = format!("{}:{}", address, port);
-        let start = std::time::Instant::now();
-        let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await;
-        match socket {
-            Ok(s) => {
-                if s.send_to(&[], &addr).await.is_ok() { (true, Some(start.elapsed().as_secs_f64() * 1000.0), "UDP Probe Transmitted".into()) } 
-                else { (false, None, "UDP Broadcast Failure".into()) }
+    async fn check_udp_port(&self, address: &str, port: u16, count: u32, timeout_ms: u64) -> (bool, Option<f64>, f64, String) {
+        let mut received = 0;
+        let mut total_latency = 0.0;
+        let mut last_error = String::from("UDP Broadcast Failure");
+
+        for i in 0..count {
+            let addr = format!("{}:{}", address, port);
+            let start = std::time::Instant::now();
+            let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await;
+            
+            match socket {
+                Ok(s) => {
+                    if tokio::time::timeout(Duration::from_millis(timeout_ms), s.send_to(&[], &addr)).await.is_ok() {
+                        received += 1;
+                        total_latency += start.elapsed().as_secs_f64() * 1000.0;
+                    } else {
+                        last_error = "Datagram Dropout".into();
+                    }
+                }
+                Err(e) => last_error = format!("Socket Layer Logic Fault: {}", e),
             }
-            Err(e) => (false, None, format!("Local Socket Error: {}", e)),
+            if i < count - 1 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+
+        let loss = ((count - received) as f64 / count as f64) * 100.0;
+        if received > 0 {
+            (true, Some(total_latency / received as f64), loss, "UDP Traffic: Active Flow".into())
+        } else {
+            (false, None, 100.0, last_error)
         }
     }
 
     async fn resolve(&self, address: &str) -> Result<IpAddr, String> {
         if let Ok(ip) = address.parse::<IpAddr>() { return Ok(ip); }
         match self.dns_resolver.lookup_ip(address).await {
-            Ok(lookup) => lookup.iter().next().ok_or_else(|| "No IP Address Found".into()),
-            Err(e) => Err(format!("Cloudflare DNS Resolution Failed: {}", e)),
+            Ok(lookup) => lookup.iter().next().ok_or_else(|| "Logic Fault: A-Record Resolution Error".into()),
+            Err(e) => Err(format!("Resolver Context Fault (Cloudflare): {}", e)),
         }
     }
 
@@ -324,46 +375,101 @@ impl Monitor {
         let new_status = if result.status { Status::Up } else { Status::Down };
         
         let mut state_lock = self.state.lock().await;
-        let old_status = state_lock.last_results.get(&key).map(|r| if r.status { Status::Up } else { Status::Down });
+        let old_result = state_lock.last_results.get(&key).cloned();
         state_lock.last_results.insert(key, result.clone());
         drop(state_lock);
 
+        let is_awaiting = old_result.as_ref().map_or(true, |r| r.message == "Awaiting Infrastructure Handshake...");
+        let old_status = old_result.map(|r| if r.status { Status::Up } else { Status::Down });
+
         let old = match old_status {
-            Some(old) if old != new_status => old,
-            None if new_status == Status::Down => Status::Up,
-            _ => return,
+            Some(old) if old != new_status => Some(old),
+            // If we find a node is DOWN on the first check, we MUST notify (simulating Up -> Down)
+            _ if is_awaiting && new_status == Status::Down => Some(Status::Up),
+            _ => None,
+        };
+
+        let old = match old {
+            Some(o) => o,
+            None => return,
         };
 
         let msg = format!("[CHANGE] {}/{} ({}) -> {:?}", result.server_name, result.check_type, result.target_address, new_status);
         if new_status == Status::Down { error!("{}", msg); } else { warn!("{}", msg); }
 
-        if self.config.webhook_url.is_some() {
+        // Mute the "Initial UP" notifications to avoid startup spam
+        if is_awaiting && new_status == Status::Up {
+            return;
+        }
+
+        if self.config.webhook_url.is_some() || self.config.ntfy_topic.is_some() {
             let this = Arc::clone(self);
-            tokio::spawn(async move { this.send_webhook(result, old, new_status).await; });
+            tokio::spawn(async move { this.dispatch_notifications(result, old, new_status).await; });
         }
     }
 
-    async fn send_webhook(&self, result: CheckResult, old: Status, new: Status) {
-        if let Some(url) = &self.config.webhook_url {
-            let color = if new == Status::Up { 0x2ECC71 } else { 0xE74C3C };
-            let payload = serde_json::json!({
-                "username": "NetPulse Engine",
-                "embeds": [{
-                    "title": "Protocol Status Transition",
-                    "color": color,
-                    "fields": [
-                        { "name": "Cluster", "value": result.server_name, "inline": true },
-                        { "name": "Node IP", "value": result.target_address, "inline": true },
-                        { "name": "Transition", "value": format!("{:?} \u{2192} {:?}", old, new), "inline": true },
-                        { "name": "Metric", "value": result.check_type, "inline": true },
-                        { "name": "Sync Latency", "value": result.latency_ms.map_or("N/A".to_string(), |l| format!("{:.2}ms", l)), "inline": true },
-                        { "name": "Reason", "value": result.message, "inline": false }
-                    ],
-                    "timestamp": Utc::now().to_rfc3339(),
-                    "footer": { "text": "NetPulse Infrastructure Intelligence" }
-                }]
-            });
-            let _ = self.http_client.post(url).json(&payload).send().await;
+    async fn dispatch_notifications(&self, result: CheckResult, old: Status, new: Status) {
+        info!("Dispatching infrastructure event notification: {} -> {:?}", result.server_name, new);
+        
+        // Handle ntfy.sh (Native Phone Push)
+        if let Some(topic) = &self.config.ntfy_topic {
+            let priority = if new == Status::Down { "5" } else { "3" };
+            let title = format!("{} ({}) -> {:?}", result.target_address, result.check_type, new);
+            let body = result.message.clone();
+            
+            let req = self.http_client.post(format!("https://ntfy.sh/{}", topic))
+                .header("Title", title)
+                .header("Priority", priority)
+                .header("Tags", if new == Status::Down { "warning,computer" } else { "heavy_check_mark" })
+                .header("User-Agent", "SPECTRA-Monitor/3.1.0")
+                .body(body);
+
+            match req.send().await {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        error!("Telemetry transmission rejected by ntfy.sh: Status {}", resp.status());
+                    }
+                }
+                Err(e) => error!("Failed to transmit ntfy.sh telemetry: {}", e),
+            }
         }
+
+        // Handle Webhooks (Discord/Slack/Generic)
+        if let Some(url) = &self.config.webhook_url {
+            if url.contains("discord.com") {
+                self.send_discord_webhook(url, result, old, new).await;
+            } else {
+                self.send_generic_webhook(url, result, old, new).await;
+            }
+        }
+    }
+
+    async fn send_discord_webhook(&self, url: &str, result: CheckResult, old: Status, new: Status) {
+        let color = if new == Status::Up { 0x2ECC71 } else { 0xE74C3C };
+        let payload = serde_json::json!({
+            "username": "SPECTRA Engine",
+            "embeds": [{
+                "title": "Mesh Protocol Transition",
+                "color": color,
+                "fields": [
+                    { "name": "Cluster", "value": result.server_name, "inline": true },
+                    { "name": "Resource IP", "value": result.target_address, "inline": true },
+                    { "name": "Transition", "value": format!("{:?} \u{2192} {:?}", old, new), "inline": true },
+                    { "name": "Protocol", "value": result.check_type, "inline": true },
+                    { "name": "Telemetry", "value": result.latency_ms.map_or("N/A".to_string(), |l| format!("{:.2}ms", l)), "inline": true },
+                    { "name": "Diagnosis", "value": result.message.to_uppercase(), "inline": false }
+                ],
+                "timestamp": Utc::now().to_rfc3339(),
+                "footer": { "text": "SPECTRA Infrastructure Intelligence" }
+            }]
+        });
+        let _ = self.http_client.post(url).json(&payload).send().await;
+    }
+
+    async fn send_generic_webhook(&self, url: &str, result: CheckResult, _old: Status, new: Status) {
+        let payload = serde_json::json!({
+            "text": format!("SPECTRA Alert: {} ({}) is now {:?}", result.server_name, result.target_address, new)
+        });
+        let _ = self.http_client.post(url).json(&payload).send().await;
     }
 }
