@@ -78,7 +78,7 @@ Create a `config.json` file in the project root:
 SPECTRA uses **ntfy.sh** for instant, account-free mobile notifications.
 
 1. **Get the App**: Install **ntfy** from the [App Store](https://apps.apple.com/app/ntfy/id1625396347) or [Google Play](https://play.google.com/store/apps/details?id=io.heckel.ntfy).
-2. **Choose a Topic**: Pick a long, unique secret string (e.g., `spectra_alerts_7722_lucas`).
+2. **Choose a Topic**: Pick a long, unique secret string (e.g., `spectra_alerts_7722`).
 3. **Configure SPECTRA**: Update your `config.json` with this topic:
    ```json
    "ntfy_topic": "your_secret_topic"
