@@ -1,5 +1,5 @@
 {
-    "check_interval": 10,
+    "check_interval": 20,
     "max_concurrency": 99,
     "api_port": 3000,
     "webhook_url": null,
