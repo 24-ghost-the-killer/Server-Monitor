@@ -30,10 +30,10 @@ async fn main() -> Result<()> {
 
     let monitor = Arc::new(Monitor::new(config.clone()).await?);
     let state_for_api = monitor.state.clone();
-    let api_port = config.api_port;
+    let config_for_api = config.clone();
 
     tokio::spawn(async move {
-        api::start_server(api_port, state_for_api).await;
+        api::start_server(config_for_api, state_for_api).await;
     });
 
     let monitor_clone = Arc::clone(&monitor);

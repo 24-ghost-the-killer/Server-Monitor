@@ -80,19 +80,33 @@ function renderTree(items, sectionId) {
     const categoryGroups = {};
     items.forEach(d => {
         const cat = d.category || "Uncategorized";
-        if (!categoryGroups[cat]) categoryGroups[cat] = {};
-        // Group by BOTH server_name and parent_address to ensure subnets stay together properly
+        if (!categoryGroups[cat]) {
+            categoryGroups[cat] = {
+                order: d.category_order ?? 999,
+                groups: {}
+            };
+        }
+
         const groupKey = `${d.server_name}||${d.parent_address || ""}`;
-        if (!categoryGroups[cat][groupKey]) categoryGroups[cat][groupKey] = [];
-        categoryGroups[cat][groupKey].push(d);
+        if (!categoryGroups[cat].groups[groupKey]) {
+            categoryGroups[cat].groups[groupKey] = {
+                order: d.server_order ?? 999,
+                items: []
+            };
+        }
+        categoryGroups[cat].groups[groupKey].items.push(d);
     });
 
-    const sortedCategories = Object.keys(categoryGroups).sort();
+    const sortedCategories = Object.keys(categoryGroups).sort((a, b) =>
+        categoryGroups[a].order - categoryGroups[b].order
+    );
     let html = '';
 
     sortedCategories.forEach(catName => {
-        const groups = categoryGroups[catName];
-        const groupKeys = Object.keys(groups).sort();
+        const category = categoryGroups[catName];
+        const groupKeys = Object.keys(category.groups).sort((a, b) =>
+            category.groups[a].order - category.groups[b].order
+        );
         const catId = `cat-${sectionId}-${catName.replace(/\s+/g, '-').toLowerCase()}`;
         const isCatExpanded = expandedNodes.has(catId) || !expandedNodes.has('initialized');
 
@@ -118,7 +132,7 @@ function renderTree(items, sectionId) {
                     <div class="tbl-body">
                         ${groupKeys.map(gKey => {
             const [sName, pAddr] = gKey.split('||');
-            return renderServerGroup(sName, pAddr, groups[gKey], catId);
+            return renderServerGroup(sName, pAddr, category.groups[gKey].items, catId);
         }).join('')}
                     </div>
                 </div>
@@ -146,8 +160,11 @@ function renderServerGroup(sName, parentAddr, items, catId) {
 
     let status = clusterStatus ? "online" : "degraded";
 
-    // Header displays the subnet/range (parentAddr) as requested
-    const displayName = `${sName} <span style="opacity: 0.5; font-size: 0.9em;">(${parentAddr})</span>`;
+    // Header hides the address entirely if masked by the backend
+    const isMasked = parentAddr === 'HIDDEN' || (parentAddr && parentAddr.startsWith('MASKED-')) || (parentAddr && parentAddr.includes('***'));
+    const displayName = isMasked
+        ? `${sName} <span style="opacity: 0.5; font-size: 0.9em;">(HIDDEN)</span>`
+        : `${sName} <span style="opacity: 0.5; font-size: 0.9em;">(${parentAddr})</span>`;
 
     let html = `
         <div class="tbl-row tbl-row--server" onclick="event.stopPropagation(); toggleNode('${groupKey}')">
@@ -176,7 +193,7 @@ function renderServerGroup(sName, parentAddr, items, catId) {
             </div>
             <div class="tbl-col tbl-col--detail">
                 <span style="color: hsl(var(--foreground-subtle)); font-size: 10px; letter-spacing: 0.02em;">
-                    ${isSubnet ? `${new Set(items.map(i => i.target_address)).size} ACTIVE NODES` : "SINGLE ENDPOINT"}
+                    ${isSubnet ? `${new Set(items.map(i => i.target_address)).size} ACTIVE NODES` : (isMasked ? "" : "SINGLE ENDPOINT")}
                 </span>
             </div>
         </div>
@@ -211,7 +228,7 @@ function renderServerGroup(sName, parentAddr, items, catId) {
                                         <i data-lucide="chevron-right" size="10" class="chevron ${isIpExpanded ? 'open' : ''}"></i>
                                     </button>
                                 </div>
-                                <span class="node-name-text">${ip}</span>
+                                <span class="node-name-text">${ip === 'HIDDEN' || ip.startsWith('MASKED-') || ip.includes('***') ? '' : ip}</span>
                             </div>
                         </div>
                         <div class="tbl-col tbl-col--status">
@@ -236,14 +253,14 @@ function renderServerGroup(sName, parentAddr, items, catId) {
                 `;
 
                 if (isIpExpanded) {
-                    ipItems.forEach(check => {
+                    ipItems.sort((a, b) => (a.check_order ?? 0) - (b.check_order ?? 0)).forEach(check => {
                         html += renderCheckRow(check, "tbl-row--indent2");
                     });
                 }
             });
         } else {
             // Single IP hosts: checks align at 35px (indent1)
-            items.sort((a, b) => a.check_type.localeCompare(b.check_type)).forEach(check => {
+            items.sort((a, b) => (a.check_order ?? 0) - (b.check_order ?? 0)).forEach(check => {
                 html += renderCheckRow(check, "tbl-row--indent1");
             });
         }

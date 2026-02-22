@@ -57,8 +57,8 @@ impl Monitor {
         let mut state = self.state.lock().await;
         let now = Utc::now();
 
-        for category in &self.config.categories {
-            for server in &category.servers {
+        for (cat_idx, category) in self.config.categories.iter().enumerate() {
+            for (srv_idx, server) in category.servers.iter().enumerate() {
                 let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
                     net.hosts().map(|ip| ip.to_string()).collect::<Vec<_>>()
                 } else {
@@ -66,7 +66,7 @@ impl Monitor {
                 };
 
                 for address in addresses {
-                    for check in &server.checks {
+                    for (chk_idx, check) in server.checks.iter().enumerate() {
                         let check_type_name = match check {
                             CheckType::Ping { .. } => "Ping".into(),
                             CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
@@ -85,6 +85,9 @@ impl Monitor {
                             latency_ms: None,
                             packet_loss: None,
                             message: "Awaiting Infrastructure Handshake...".into(),
+                            category_order: cat_idx,
+                            server_order: srv_idx,
+                            check_order: chk_idx,
                         });
                     }
                 }
@@ -103,8 +106,8 @@ impl Monitor {
             let start_time = Utc::now();
             let mut tasks = FuturesUnordered::new();
 
-            for category in &self.config.categories {
-                for server in &category.servers {
+            for (cat_idx, category) in self.config.categories.iter().enumerate() {
+                for (srv_idx, server) in category.servers.iter().enumerate() {
                     let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
                         net.hosts().map(|ip| ip.to_string()).collect::<Vec<_>>()
                     } else {
@@ -112,7 +115,7 @@ impl Monitor {
                     };
 
                     for address in addresses {
-                        for check in &server.checks {
+                        for (chk_idx, check) in server.checks.iter().enumerate() {
                             let monitor_ref = Arc::clone(&self);
                             let s_clone = server.clone();
                             let a_clone = address.clone();
@@ -123,6 +126,9 @@ impl Monitor {
                                 let _permit = monitor_ref.concurrency_limiter.acquire().await.ok();
                                 let mut res = monitor_ref.run_check_with_retry(s_clone, a_clone, c_clone).await;
                                 res.category = cat_name;
+                                res.category_order = cat_idx;
+                                res.server_order = srv_idx;
+                                res.check_order = chk_idx;
                                 res
                             }));
 
@@ -143,7 +149,8 @@ impl Monitor {
             }
 
             results.sort_by(|a, b| {
-                a.category.cmp(&b.category)
+                a.category_order.cmp(&b.category_order)
+                    .then(a.server_order.cmp(&b.server_order))
                     .then(a.server_name.cmp(&b.server_name))
                     .then(a.check_type.cmp(&b.check_type))
             });
@@ -203,7 +210,7 @@ impl Monitor {
                             status = true;
                             latency = p_latency; 
                             loss = Some(0.0);
-                            msg = format!("ICMP Filtered (Handshake verified via {} - {}ms)", 
+                            msg = format!("ICMP Blocked (Handshake verified via {} - {}ms)", 
                                 name, 
                                 p_latency.map_or("N/A".to_string(), |l| format!("{:.1}", l)));
                             break;
@@ -222,6 +229,9 @@ impl Monitor {
                     latency_ms: latency,
                     packet_loss: loss,
                     message: msg,
+                    category_order: 0,
+                    server_order: 0,
+                    check_order: 0,
                 }
             }
             CheckType::TcpPort { port, count, timeout_ms } => {
@@ -237,6 +247,9 @@ impl Monitor {
                     latency_ms: latency,
                     packet_loss: Some(loss),
                     message: msg,
+                    category_order: 0,
+                    server_order: 0,
+                    check_order: 0,
                 }
             }
             CheckType::UdpPort { port, count, timeout_ms } => {
@@ -252,6 +265,9 @@ impl Monitor {
                     latency_ms: latency,
                     packet_loss: Some(loss),
                     message: msg,
+                    category_order: 0,
+                    server_order: 0,
+                    check_order: 0,
                 }
             }
         }

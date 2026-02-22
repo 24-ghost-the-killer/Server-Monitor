@@ -20,6 +20,9 @@ pub struct CheckResult {
     pub latency_ms: Option<f64>,
     pub packet_loss: Option<f64>,
     pub message: String,
+    pub category_order: usize,
+    pub server_order: usize,
+    pub check_order: usize,
 }
 
 pub struct MonitorState {

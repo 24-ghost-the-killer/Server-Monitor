@@ -10,6 +10,8 @@ pub struct MonitorConfig {
     pub api_port: u16,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: usize,
+    #[serde(default)]
+    pub hide_endpoints: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -2,8 +2,9 @@
     "check_interval": 20,
     "max_concurrency": 99,
     "api_port": 3000,
+    "hide_endpoints": true,
     "webhook_url": null,
-    "ntfy_topic": "test_monitoring_system",
+    "ntfy_topic": "replace_with_your_topic",
     "categories": [
         {
             "name": "Nyru Infrastructure",

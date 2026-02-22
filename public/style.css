@@ -191,6 +191,34 @@ body {
     justify-content: flex-end;
 }
 
+.nav-btn {
+    background: hsl(var(--surface-2) / 0.6);
+    border: 1px solid hsl(var(--border));
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: hsl(var(--foreground-muted));
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+
+.nav-btn:hover {
+    background: hsl(var(--surface-3) / 0.8);
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--foreground-subtle) / 0.3);
+    transform: translateY(-1px);
+}
+
+.nav-btn.active {
+    background: hsl(var(--primary) / 0.15);
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary) / 0.4);
+}
+
 .brand-icon {
     width: 34px;
     height: 34px;
