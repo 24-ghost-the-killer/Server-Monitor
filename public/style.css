@@ -566,7 +566,7 @@ body {
 
 .tbl-row--service {
     background: hsl(var(--surface-2) / 0.1);
-    font-size: 11.5px;
+    font-size: 10px;
 }
 
 .tbl-row--service:hover {

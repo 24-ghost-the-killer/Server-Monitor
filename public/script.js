@@ -176,7 +176,7 @@ function renderServerGroup(sName, parentAddr, items, catId) {
             </div>
             <div class="tbl-col tbl-col--detail">
                 <span style="color: hsl(var(--foreground-subtle)); font-size: 10px; letter-spacing: 0.02em;">
-                    ${isSubnet ? `CLUSTER: ${new Set(items.map(i => i.target_address)).size} ACTIVE NODES` : "TERMINAL: ISOLATED ENDPOINT"}
+                    ${isSubnet ? `${new Set(items.map(i => i.target_address)).size} ACTIVE NODES` : "SINGLE ENDPOINT"}
                 </span>
             </div>
         </div>

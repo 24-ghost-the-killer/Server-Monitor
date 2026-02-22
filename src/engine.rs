@@ -286,7 +286,7 @@ impl Monitor {
 
         let loss = ((count - received) as f64 / count as f64) * 100.0;
         if received > 0 {
-            (true, Some(total_latency / received as f64), Some(loss), "ICMP Pathing: Verified".into())
+            (true, Some(total_latency / received as f64), Some(loss), "ICMP Connection: Verified".into())
         } else {
             (false, None, Some(100.0), "Signal Loss Detected".into())
         }
@@ -296,8 +296,8 @@ impl Monitor {
         let addr = format!("{}:{}", address, port);
         let start = std::time::Instant::now();
         match tokio::time::timeout(Duration::from_millis(timeout_ms), TcpStream::connect(&addr)).await {
-            Ok(Ok(_)) => (true, Some(start.elapsed().as_secs_f64() * 1000.0), "TCP Interface: Established".into()),
-            Ok(Err(e)) => (false, None, format!("Peer Reject: {}", e)),
+            Ok(Ok(_)) => (true, Some(start.elapsed().as_secs_f64() * 1000.0), "Connection Established".into()),
+            Ok(Err(e)) => (false, None, format!("Connection Rejected: {}", e)),
             Err(_) => (false, None, "Request Timeout".into()),
         }
     }
@@ -322,7 +322,7 @@ impl Monitor {
 
         let loss = ((count - received) as f64 / count as f64) * 100.0;
         if received > 0 {
-            (true, Some(total_latency / received as f64), loss, "TCP Interface: Established".into())
+            (true, Some(total_latency / received as f64), loss, "Connection Established".into())
         } else {
             (false, None, 100.0, last_error)
         }
@@ -414,8 +414,8 @@ impl Monitor {
         // Handle ntfy.sh (Native Phone Push)
         if let Some(topic) = &self.config.ntfy_topic {
             let priority = if new == Status::Down { "5" } else { "3" };
-            let title = format!("{} ({}) -> {:?}", result.target_address, result.check_type, new);
-            let body = result.message.clone();
+            let title = format!("{} -> {:?}", result.target_address, new);
+            let body = format!("{}: {}", result.check_type, result.message);
             
             let req = self.http_client.post(format!("https://ntfy.sh/{}", topic))
                 .header("Title", title)
