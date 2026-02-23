@@ -23,8 +23,11 @@ pub struct CheckResult {
     pub category_order: usize,
     pub server_order: usize,
     pub check_order: usize,
+    pub provider_node: Option<String>,
 }
 
 pub struct MonitorState {
     pub last_results: HashMap<String, CheckResult>,
+    pub node_id: String,
+    pub live_nodes: Vec<String>,
 }

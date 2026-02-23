@@ -4,13 +4,14 @@ A high-performance, asynchronous "Turbo Mesh" monitoring system built with Rust.
 
 ## Features
 
-- **Turbo Mesh Engine**: High-concurrency monitoring (1500+ workers) with semaphore-based rate limiting.
-- **Intelligent Handshake Fallback**: Automatically verifies host status via TCP service checks (SSH, HTTP, etc.) if ICMP pings are filtered by firewalls.
-- **Mobile Push Notifications**: Native phone alerts via **ntfy.sh** (No account required, high-priority "Urgent" bypass).
-- **Discord Integration**: Rich media embeds for status transitions with color-coded telemetry.
-- **Micro-Telemetry**: Sub-millisecond latency tracking and multi-probe packet loss calculation.
-- **Premium HUD**: High-fidelity web dashboard with "Infrastructure Intelligence" aesthetic, real-time clock, and smart status badges.
-- **DNS Intelligence**: Low-latency resolution via Cloudflare 1.1.1.1 integration.
+- **Turbo Mesh V4 Engine**: Multi-node high-concurrency monitoring (1500+ workers) with semaphore-based rate limiting.
+- **Micro-Second Precision Pulse**: Aggressive 1-second heartbeat frequency for near-instant node failover.
+- **Fair Workload Distribution**: Deterministic round-robin allocation ensuring perfectly even task distribution among cluster members.
+- **Intelligent Handshake Fallback**: Verifies host status via TCP service checks (SSH, HTTP, RDP, etc.) if ICMP pings are filtered.
+- **Mobile Push Notifications**: Urgent phone alerts via **ntfy.sh** with priority bypass and custom tags.
+- **Discord Integration**: Rich media embeds with color-coded mesh transition telemetry.
+- **Cloudflare DNS Integration**: Optimized 1.1.1.1 resolution for high-accuracy global monitoring.
+- **Advanced UI HUD**: Glassmorphism dashboard with real-time stats, tree-view hierarchy, and search filtering.
 
 ## Live Preview
 
@@ -68,9 +69,35 @@ Create a `config.json` file in the project root:
 |--------|------|-------------|
 | `check_interval` | u64 | Seconds between monitoring cycles |
 | `max_concurrency` | usize | Maximum simultaneous check workers |
+| `max_checks_per_second` | u64 | Global cluster rate limiting for outgoing checks |
+| `hide_endpoints` | bool | Enable cryptographic masking of IP addresses in the API/UI |
 | `webhook_url` | string | Discord or generic webhook URL |
 | `ntfy_topic` | string | Unique topic for mobile push alerts |
 | `api_port` | u16 | Dashboard listener port |
+| `redis_url` | string | Redis connection string (e.g., `redis://127.0.0.1:6379`) |
+| `redis_prefix` | string | Prefix for Redis keys to isolate multiple clusters |
+| `enable_dashboard` | bool/null | Explicitly enable/disable the web UI (defaults to `false` if Redis is connected, `true` if Standalone) |
+
+## Redis Clustering & Caching
+
+SPECTRA supports distributed monitoring across multiple nodes using Redis. When `redis_url` is configured:
+
+1.  **Workload Distribution**: Nodes use a **Fair Round-Robin** algorithm to perfectly balance monitoring tasks. For example, in a two-node cluster, the workload is distributed with a 50/50 split. 
+2.  **Fast Failover**: Node heartbeats are refreshed every 1 second. If a node disconnects, the mesh detects the "timeout" within 5 seconds and redistributes its workload across the remaining healthy nodes.
+3.  **Global Mesh State**: All nodes synchronize results to a high-speed Redis hash. The dashboard (if enabled on a node) provides a unified, cluster-wide view of all monitored resources.
+4.  **Distributed Locking**: A built-in lock mechanism prevents multiple nodes from checking the same endpoint simultaneously during mesh transitions.
+5.  **Config Pruning**: Redundant results from deleted config servers are automatically purged from the Redis mesh state upon startup.
+
+### Clustering Configuration Example
+
+```json
+{
+    "check_interval": 30,
+    "redis_url": "redis://localhost:6379",
+    "redis_prefix": "spectra-prod",
+    "categories": [...]
+}
+```
 
 ## Notifications
 

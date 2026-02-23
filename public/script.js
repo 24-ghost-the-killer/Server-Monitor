@@ -144,7 +144,6 @@ function renderTree(items, sectionId) {
 }
 
 function renderServerGroup(sName, parentAddr, items, catId) {
-    // Detect true subnets: must have a slash and not be a /32 single host
     const isSubnet = parentAddr.includes("/") && !parentAddr.endsWith("/32");
 
     const groupKey = `group:${catId}:${sName}:${parentAddr}`;
@@ -160,7 +159,6 @@ function renderServerGroup(sName, parentAddr, items, catId) {
 
     let status = clusterStatus ? "online" : "degraded";
 
-    // Header hides the address entirely if masked by the backend
     const isMasked = parentAddr === 'HIDDEN' || (parentAddr && parentAddr.startsWith('MASKED-')) || (parentAddr && parentAddr.includes('***'));
     const displayName = isMasked
         ? `${sName} <span style="opacity: 0.5; font-size: 0.9em;">(HIDDEN)</span>`
@@ -201,7 +199,6 @@ function renderServerGroup(sName, parentAddr, items, catId) {
 
     if (isExpanded) {
         if (isSubnet) {
-            // Group by target_address for subnets to create the secondary IP tree level
             const ipGroups = {};
             items.forEach(item => {
                 if (!ipGroups[item.target_address]) ipGroups[item.target_address] = [];
@@ -215,7 +212,6 @@ function renderServerGroup(sName, parentAddr, items, catId) {
                 const isIpExpanded = expandedNodes.has(ipKey);
                 const ipStatus = ipItems.every(i => i.status) ? "online" : "offline";
 
-                // Calculate average latency for this specific node
                 const ipPings = ipItems.map(i => getLat(i)).filter(l => l > 0);
                 const ipAvgLat = ipPings.length > 0 ? (ipPings.reduce((a, c) => a + c, 0) / ipPings.length).toFixed(1) + 'ms' : '--';
 
@@ -259,7 +255,6 @@ function renderServerGroup(sName, parentAddr, items, catId) {
                 }
             });
         } else {
-            // Single IP hosts: checks align at 35px (indent1)
             items.sort((a, b) => (a.check_order ?? 0) - (b.check_order ?? 0)).forEach(check => {
                 html += renderCheckRow(check, "tbl-row--indent1");
             });
@@ -274,6 +269,8 @@ function renderCheckRow(check, indentClass) {
     let cLat = cLatVal > 0 ? cLatVal.toFixed(2) + 'ms' : '--';
     const isSmartVerified = (check.message || "").toLowerCase().includes("verified via");
     const isFault = (check.message || "").toLowerCase().includes("fault") || (check.message || "").toLowerCase().includes("loss");
+
+    const provider = check.provider_node ? check.provider_node.slice(0, 4).toUpperCase() : "---";
 
     return `
         <div class="tbl-row--service ${indentClass} tbl-row">
@@ -297,9 +294,12 @@ function renderCheckRow(check, indentClass) {
                 </div>
             </div>
             <div class="tbl-col tbl-col--detail">
-                <span style="color: ${isSmartVerified ? 'hsl(var(--status-online-bright))' : isFault ? 'hsl(var(--status-degraded-bright))' : 'hsl(var(--foreground-subtle))'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
-                    ${check.message.toUpperCase()}
-                </span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 8px; color: hsl(var(--foreground-subtle)); background: rgba(255,255,255,0.05); padding: 1px 4px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.1);">[${provider}]</span>
+                    <span style="color: ${isSmartVerified ? 'hsl(var(--status-online-bright))' : isFault ? 'hsl(var(--status-degraded-bright))' : 'hsl(var(--foreground-subtle))'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
+                        ${check.message.toUpperCase()}
+                    </span>
+                </div>
             </div>
         </div>
     `;

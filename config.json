@@ -5,66 +5,151 @@
     "hide_endpoints": true,
     "webhook_url": null,
     "ntfy_topic": "replace_with_your_topic",
+    "redis_url": "redis://<redis_ip>:6379",
+    "redis_prefix": "spectra",
+    "max_checks_per_second": 50,
+    "enable_dashboard": null,
     "categories": [
         {
-            "name": "Nyru Infrastructure",
+            "name": "Roleplay Servers",
             "servers": [
                 {
-                    "name": "Nyru Hypervisors #1",
-                    "address": "5.175.246.1",
+                    "name": "Legacy RP",
+                    "address": "162.19.126.43",
                     "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
                             "count": 4,
                             "timeout_ms": 1500
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 30120,
+                            "timeout_ms": 1000
                         }
                     ]
                 },
                 {
-                    "name": "Nyru Hypervisors #2",
-                    "address": "5.175.248.1",
+                    "name": "Destiny",
+                    "address": "45.8.187.161",
                     "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
                             "count": 4,
                             "timeout_ms": 1500
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 30120,
+                            "timeout_ms": 1000
                         }
                     ]
                 },
                 {
-                    "name": "Nyru Hypervisors #3",
-                    "address": "5.231.120.3",
+                    "name": "OdessaRP 3.5",
+                    "address": "195.60.166.71",
                     "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
                             "count": 4,
                             "timeout_ms": 1500
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 30120,
+                            "timeout_ms": 1000
                         }
                     ]
                 }
             ]
         },
         {
-            "name": "Mine Servers",
+            "name": "PvP Servers",
             "servers": [
                 {
-                    "name": "A-Zone Server",
-                    "address": "5.175.246.32",
+                    "name": "XPvP 2.0",
+                    "address": "5.175.246.20",
                     "max_retries": 2,
                     "checks": [
                         {
-                            "type": "TcpPort",
-                            "port": 22,
-                            "count": 2,
-                            "timeout_ms": 1000
+                            "type": "Ping",
+                            "count": 4,
+                            "timeout_ms": 1500
                         },
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 2,
+                            "timeout_ms": 1000
+                        }
+                    ]
+                },
+                {
+                    "name": "Last PvP",
+                    "address": "5.231.120.22",
+                    "max_retries": 2,
+                    "checks": [
+                        {
+                            "type": "Ping",
+                            "count": 4,
+                            "timeout_ms": 1500
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 30120,
+                            "timeout_ms": 1000
+                        }
+                    ]
+                },
+                {
+                    "name": "Arena",
+                    "address": "151.242.106.25",
+                    "max_retries": 2,
+                    "checks": [
+                        {
+                            "type": "Ping",
+                            "count": 4,
+                            "timeout_ms": 1500
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 30120,
+                            "timeout_ms": 1000
+                        }
+                    ]
+                },
+                {
+                    "name": "V3 PvP",
+                    "address": "151.242.106.62",
+                    "max_retries": 2,
+                    "checks": [
+                        {
+                            "type": "Ping",
+                            "count": 4,
+                            "timeout_ms": 1500
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 30120,
+                            "timeout_ms": 1000
+                        }
+                    ]
+                },
+                {
+                    "name": "RSM Freeroam",
+                    "address": "15.235.28.63",
+                    "max_retries": 2,
+                    "checks": [
+                        {
+                            "type": "Ping",
+                            "count": 4,
+                            "timeout_ms": 1500
+                        },
+                        {
+                            "type": "TcpPort",
+                            "port": 30120,
                             "timeout_ms": 1000
                         }
                     ]

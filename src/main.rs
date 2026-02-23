@@ -8,6 +8,7 @@ mod models;
 mod engine;
 mod api;
 mod utils;
+mod redis_manager;
 
 use crate::config::MonitorConfig;
 use crate::engine::Monitor;
@@ -29,12 +30,19 @@ async fn main() -> Result<()> {
         .with_context(|| "Failed to parse config")?;
 
     let monitor = Arc::new(Monitor::new(config.clone()).await?);
-    let state_for_api = monitor.state.clone();
-    let config_for_api = config.clone();
+    let should_run_dashboard = match config.enable_dashboard {
+        Some(enabled) => enabled,
+        None => config.redis_url.is_none(),
+    };
 
-    tokio::spawn(async move {
-        api::start_server(config_for_api, state_for_api).await;
-    });
+    if should_run_dashboard {
+        let monitor_for_api = monitor.clone();
+        tokio::spawn(async move {
+            api::start_server(monitor_for_api).await;
+        });
+    } else {
+        info!("Mesh Cluster Context: Dashboard disabled on this node.");
+    }
 
     let monitor_clone = Arc::clone(&monitor);
     tokio::spawn(async move {
@@ -45,6 +53,7 @@ async fn main() -> Result<()> {
 
     signal::ctrl_c().await?;
     info!("Shutdown signal received. Closing NetPulse Engine...");
+    monitor.shutdown().await;
     
     Ok(())
 }

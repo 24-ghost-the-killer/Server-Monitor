@@ -12,7 +12,18 @@ pub struct MonitorConfig {
     pub max_concurrency: usize,
     #[serde(default)]
     pub hide_endpoints: bool,
+    #[serde(default)]
+    pub redis_url: Option<String>,
+    #[serde(default = "default_redis_prefix")]
+    pub redis_prefix: String,
+    #[serde(default = "default_max_checks_per_second")]
+    pub max_checks_per_second: u64,
+    #[serde(default)]
+    pub enable_dashboard: Option<bool>,
 }
+
+fn default_redis_prefix() -> String { "spectra".into() }
+fn default_max_checks_per_second() -> u64 { 50 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Category {

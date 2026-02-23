@@ -16,6 +16,7 @@ use tracing::{error, info, warn};
 
 use crate::config::{MonitorConfig, Server, CheckType};
 use crate::models::{CheckResult, MonitorState, Status};
+use crate::redis_manager::RedisManager;
 
 pub struct Monitor {
     pub config: MonitorConfig,
@@ -24,6 +25,7 @@ pub struct Monitor {
     http_client: reqwest::Client,
     concurrency_limiter: Arc<Semaphore>,
     dns_resolver: TokioResolver,
+    pub redis: Option<RedisManager>,
 }
 
 impl Monitor {
@@ -40,23 +42,83 @@ impl Monitor {
 
         info!("DNS resolver configured: Cloudflare 1.1.1.1 / 1.0.0.1");
 
+        let redis = if let Some(url) = &config.redis_url {
+            info!("Redis clustering mode enabled: {}", url);
+            Some(RedisManager::new(url, config.redis_prefix.clone())?)
+        } else {
+            None
+        };
+
+        let hostname = hostname::get()
+            .map(|h| h.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "unknown".to_string());
+        let node_id = format!("{}-{}", hostname, &uuid::Uuid::new_v4().to_string()[..4]);
+
         Ok(Self {
             config,
             ping_client,
             state: Arc::new(Mutex::new(MonitorState {
                 last_results: HashMap::new(),
+                node_id,
+                live_nodes: Vec::new(),
             })),
             http_client: reqwest::Client::new(),
             concurrency_limiter: Arc::new(Semaphore::new(max_concurrent)),
             dns_resolver,
+            redis,
         })
     }
 
     pub async fn initialize_state(&self) {
         info!("Initializing infrastructure mesh state...");
-        let mut state = self.state.lock().await;
+        
+        let mut active_keys = std::collections::HashSet::new();
         let now = Utc::now();
 
+        for category in self.config.categories.iter() {
+            for server in category.servers.iter() {
+                let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
+                    net.hosts().map(|ip| ip.to_string()).collect::<Vec<_>>()
+                } else {
+                    vec![server.address.clone()]
+                };
+
+                for address in addresses {
+                    for check in server.checks.iter() {
+                        let check_type_name = match check {
+                            CheckType::Ping { .. } => "Ping".into(),
+                            CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
+                            CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
+                        };
+                        let key = format!("{}-{}-{}-{}", server.name, server.address, address, check_type_name);
+                        active_keys.insert(key);
+                    }
+                }
+            }
+        }
+
+        if let Some(redis) = &self.redis {
+            match redis.fetch_all_results().await {
+                Ok(cached) => {
+                    let mut state = self.state.lock().await;
+                    
+                    for key in cached.keys() {
+                        if !active_keys.contains(key) {
+                            let _ = redis.delete_result(key).await;
+                        }
+                    }
+
+                    state.last_results = cached.into_iter()
+                        .filter(|(k, _)| active_keys.contains(k))
+                        .collect();
+
+                    info!("Restored {} valid tracking points from Redis cache", state.last_results.len());
+                }
+                Err(e) => error!("Failed to fetch mesh state from Redis: {}", e),
+            }
+        }
+
+        let mut state = self.state.lock().await;
         for (cat_idx, category) in self.config.categories.iter().enumerate() {
             for (srv_idx, server) in category.servers.iter().enumerate() {
                 let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
@@ -72,8 +134,8 @@ impl Monitor {
                             CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
                             CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
                         };
-                        
                         let key = format!("{}-{}-{}-{}", server.name, server.address, address, check_type_name);
+                        
                         state.last_results.entry(key).or_insert(CheckResult {
                             category: category.name.clone(),
                             server_name: server.name.clone(),
@@ -88,6 +150,7 @@ impl Monitor {
                             category_order: cat_idx,
                             server_order: srv_idx,
                             check_order: chk_idx,
+                            provider_node: None,
                         });
                     }
                 }
@@ -102,9 +165,92 @@ impl Monitor {
         
         self.initialize_state().await;
         
+        let node_id = {
+            let state = self.state.lock().await;
+            state.node_id.clone()
+        };
+        
+        if let Some(redis) = &self.redis {
+            let redis_clone = redis.clone();
+            let state_clone = Arc::clone(&self.state);
+            let nid = node_id.clone();
+            
+            tokio::spawn(async move {
+                let mut is_online = true;
+                let mut last_nodes: Vec<String> = Vec::new();
+
+                loop {
+                    let _ = redis_clone.register_node(&nid).await;
+                    match redis_clone.cleanup_dead_nodes().await {
+                        Ok(current_nodes) => {
+                            let mut state = state_clone.lock().await;
+                            state.live_nodes = current_nodes.clone();
+                            
+                            if !is_online {
+                                warn!("--- Redis Cluster Mesh Link Restored ---");
+                                is_online = true;
+                            }
+
+                            for node in &current_nodes {
+                                if !last_nodes.contains(node) && node != &nid {
+                                    info!("Cluster Event: Node [{}] joined the infrastructure mesh.", node);
+                                }
+                            }
+
+                            for node in &last_nodes {
+                                if !current_nodes.contains(node) && node != &nid {
+                                    warn!("Cluster Event: Node [{}] has disconnected or timed out.", node);
+                                }
+                            }
+
+                            if current_nodes.len() == 1 && last_nodes.len() > 1 {
+                                info!("Cluster Status: Last peer disconnected. Resuming full local workload (Standalone).");
+                            } else if current_nodes.len() > 1 && last_nodes.len() <= 1 {
+                                info!("Cluster Status: Peer(s) detected. Load-balancing turbo mesh active.");
+                            } else if current_nodes.len() != last_nodes.len() && current_nodes.len() > 1 {
+                                info!("Cluster Status: Mesh updated. Total nodes active: {}.", current_nodes.len());
+                            }
+
+                            last_nodes = current_nodes;
+                        }
+                        Err(e) => {
+                            if is_online {
+                                error!("Redis cluster heartbeat failure: {}. Mesh coordination suspended.", e);
+                                is_online = false;
+                                last_nodes.clear();
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            });
+        }
+
         loop {
             let start_time = Utc::now();
             let mut tasks = FuturesUnordered::new();
+
+            let live_nodes = if self.redis.is_some() {
+                let state = self.state.lock().await;
+                if state.live_nodes.is_empty() {
+                    vec![node_id.clone()]
+                } else {
+                    state.live_nodes.clone()
+                }
+            } else {
+                vec![node_id.clone()]
+            };
+
+            let node_index = live_nodes.iter().position(|id| id == &node_id).unwrap_or(0);
+            let total_nodes = live_nodes.len();
+
+            if total_nodes > 1 {
+                info!("Mesh Sync: Handshaking with cluster... [Local Node {}/{}]", node_index + 1, total_nodes);
+            }
+
+            let mut skipped = 0;
+            let mut performed = 0;
+            let mut global_idx = 0;
 
             for (cat_idx, category) in self.config.categories.iter().enumerate() {
                 for (srv_idx, server) in category.servers.iter().enumerate() {
@@ -116,25 +262,57 @@ impl Monitor {
 
                     for address in addresses {
                         for (chk_idx, check) in server.checks.iter().enumerate() {
+                            let check_type_name = match check {
+                                CheckType::Ping { .. } => "Ping".into(),
+                                CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
+                                CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
+                            };
+                            
+                            let key = format!("{}-{}-{}-{}", server.name, server.address, address, check_type_name);
+                            
+                            let item_idx = global_idx;
+                            global_idx += 1;
+                            
+                            if (item_idx % total_nodes) != node_index {
+                                skipped += 1;
+                                continue;
+                            }
+
+                            performed += 1;
+
                             let monitor_ref = Arc::clone(&self);
                             let s_clone = server.clone();
                             let a_clone = address.clone();
                             let c_clone = check.clone();
                             let cat_name = category.name.clone();
+                            let nid_clone = node_id.clone();
+                            let key_clone = key.clone();
+                            let interval = self.config.check_interval;
+                            let max_rps = self.config.max_checks_per_second;
                             
                             tasks.push(tokio::spawn(async move {
+                                if let Some(redis) = &monitor_ref.redis {
+                                    if redis.is_rate_limited(max_rps).await.unwrap_or(false) {
+                                        return None;
+                                    }
+
+                                    let ttl = (interval * 1000) * 8 / 10;
+                                    if !redis.try_acquire_lock(&key_clone, &nid_clone, ttl).await {
+                                        return None;
+                                    }
+                                }
+
                                 let _permit = monitor_ref.concurrency_limiter.acquire().await.ok();
                                 let mut res = monitor_ref.run_check_with_retry(s_clone, a_clone, c_clone).await;
                                 res.category = cat_name;
                                 res.category_order = cat_idx;
                                 res.server_order = srv_idx;
                                 res.check_order = chk_idx;
-                                res
+                                res.provider_node = Some(nid_clone);
+                                Some(res)
                             }));
 
-                            // Pacing: Add a small delay between spawns to prevent network saturation/throttling
-                            // Especially important when scanning subnets (e.g. /24)
-                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            tokio::time::sleep(Duration::from_millis(15)).await;
                         }
                     }
                 }
@@ -143,7 +321,7 @@ impl Monitor {
             let mut results = Vec::with_capacity(tasks.len());
             let total = tasks.len();
             while let Some(join_res) = tasks.next().await {
-                if let Ok(result) = join_res {
+                if let Ok(Some(result)) = join_res {
                     results.push(result);
                 }
             }
@@ -160,9 +338,12 @@ impl Monitor {
             }
 
             let duration = Utc::now() - start_time;
-            info!("Turbo cycle completed {} checks in {:.2}s.", 
-                total,
-                duration.num_milliseconds() as f64 / 1000.0);
+            if total > 0 {
+                info!("Turbo cycle: {} performed, {} delegated to cluster. Finished in {:.2}s.", 
+                    performed,
+                    skipped,
+                    duration.num_milliseconds() as f64 / 1000.0);
+            }
 
             tokio::time::sleep(Duration::from_secs(self.config.check_interval)).await;
         }
@@ -232,6 +413,7 @@ impl Monitor {
                     category_order: 0,
                     server_order: 0,
                     check_order: 0,
+                    provider_node: None,
                 }
             }
             CheckType::TcpPort { port, count, timeout_ms } => {
@@ -250,6 +432,7 @@ impl Monitor {
                     category_order: 0,
                     server_order: 0,
                     check_order: 0,
+                    provider_node: None,
                 }
             }
             CheckType::UdpPort { port, count, timeout_ms } => {
@@ -268,6 +451,7 @@ impl Monitor {
                     category_order: 0,
                     server_order: 0,
                     check_order: 0,
+                    provider_node: None,
                 }
             }
         }
@@ -284,6 +468,9 @@ impl Monitor {
         let mut pinger = self.ping_client.pinger(ip, pinger_id).await;
         pinger.timeout(Duration::from_millis(timeout_ms));
 
+        let _ = pinger.ping(PingSequence(0xFFFF), &payload).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
         let mut received = 0;
         let mut total_latency = 0.0;
 
@@ -296,7 +483,7 @@ impl Monitor {
                 Err(_) => {}
             }
             if i < count - 1 { 
-                tokio::time::sleep(Duration::from_millis(100)).await; 
+                tokio::time::sleep(Duration::from_millis(250)).await; 
             }
         }
 
@@ -310,12 +497,21 @@ impl Monitor {
 
     async fn raw_tcp_check(address: &str, port: u16, timeout_ms: u64) -> (bool, Option<f64>, String) {
         let addr = format!("{}:{}", address, port);
-        let start = std::time::Instant::now();
-        match tokio::time::timeout(Duration::from_millis(timeout_ms), TcpStream::connect(&addr)).await {
-            Ok(Ok(_)) => (true, Some(start.elapsed().as_secs_f64() * 1000.0), "Connection Established".into()),
-            Ok(Err(e)) => (false, None, format!("Connection Rejected: {}", e)),
-            Err(_) => (false, None, "Request Timeout".into()),
+        let mut last_error = String::from("Timeout");
+        
+        for attempt in 0..2 {
+            let start = std::time::Instant::now();
+            match tokio::time::timeout(Duration::from_millis(timeout_ms), TcpStream::connect(&addr)).await {
+                Ok(Ok(_)) => return (true, Some(start.elapsed().as_secs_f64() * 1000.0), "Connection Established".into()),
+                Ok(Err(e)) => last_error = format!("Connection Rejected: {}", e),
+                Err(_) => last_error = "Request Timeout".into(),
+            }
+            
+            if attempt == 0 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
         }
+        (false, None, last_error)
     }
 
     async fn check_tcp_port(&self, address: &str, port: u16, count: u32, timeout_ms: u64) -> (bool, Option<f64>, f64, String) {
@@ -332,7 +528,7 @@ impl Monitor {
                 last_error = msg;
             }
             if i < count - 1 {
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(250)).await;
             }
         }
 
@@ -366,7 +562,7 @@ impl Monitor {
                 Err(e) => last_error = format!("Socket Layer Logic Fault: {}", e),
             }
             if i < count - 1 {
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(250)).await;
             }
         }
 
@@ -390,6 +586,10 @@ impl Monitor {
         let key = format!("{}-{}-{}-{}", result.server_name, result.parent_address, result.target_address, result.check_type);
         let new_status = if result.status { Status::Up } else { Status::Down };
         
+        if let Some(redis) = &self.redis {
+            let _ = redis.push_result(&key, &result).await;
+        }
+
         let mut state_lock = self.state.lock().await;
         let old_result = state_lock.last_results.get(&key).cloned();
         state_lock.last_results.insert(key, result.clone());
@@ -400,7 +600,6 @@ impl Monitor {
 
         let old = match old_status {
             Some(old) if old != new_status => Some(old),
-            // If we find a node is DOWN on the first check, we MUST notify (simulating Up -> Down)
             _ if is_awaiting && new_status == Status::Down => Some(Status::Up),
             _ => None,
         };
@@ -413,7 +612,6 @@ impl Monitor {
         let msg = format!("[CHANGE] {}/{} ({}) -> {:?}", result.server_name, result.check_type, result.target_address, new_status);
         if new_status == Status::Down { error!("{}", msg); } else { warn!("{}", msg); }
 
-        // Mute the "Initial UP" notifications to avoid startup spam
         if is_awaiting && new_status == Status::Up {
             return;
         }
@@ -427,7 +625,6 @@ impl Monitor {
     async fn dispatch_notifications(&self, result: CheckResult, old: Status, new: Status) {
         info!("Dispatching infrastructure event notification: {} -> {:?}", result.server_name, new);
         
-        // Handle ntfy.sh (Native Phone Push)
         if let Some(topic) = &self.config.ntfy_topic {
             let priority = if new == Status::Down { "5" } else { "3" };
             let title = format!("{} -> {:?}", result.target_address, new);
@@ -450,7 +647,6 @@ impl Monitor {
             }
         }
 
-        // Handle Webhooks (Discord/Slack/Generic)
         if let Some(url) = &self.config.webhook_url {
             if url.contains("discord.com") {
                 self.send_discord_webhook(url, result, old, new).await;
@@ -487,5 +683,13 @@ impl Monitor {
             "text": format!("SPECTRA Alert: {} ({}) is now {:?}", result.server_name, result.target_address, new)
         });
         let _ = self.http_client.post(url).json(&payload).send().await;
+    }
+
+    pub async fn shutdown(&self) {
+        if let Some(redis) = &self.redis {
+            let node_id = self.state.lock().await.node_id.clone();
+            info!("Gracefully unregistering node {} from cluster...", node_id);
+            let _ = redis.unregister_node(&node_id).await;
+        }
     }
 }
