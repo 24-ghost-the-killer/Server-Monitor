@@ -45,6 +45,10 @@ Create a `config.json` file in the project root:
     "api_port": 3000,
     "webhook_url": "https://discord.com/api/webhooks/...",
     "ntfy_topic": "your_secret_topic_name",
+    "redis_url": "redis://<redis-ip>:6379",
+    "redis_prefix": "spectra",
+    "max_checks_per_second": 50,
+    "enable_dashboard": null,
     "categories": [
         {
             "name": "Cloud Infrastructure",
@@ -74,7 +78,7 @@ Create a `config.json` file in the project root:
 | `webhook_url` | string | Discord or generic webhook URL |
 | `ntfy_topic` | string | Unique topic for mobile push alerts |
 | `api_port` | u16 | Dashboard listener port |
-| `redis_url` | string | Redis connection string (e.g., `redis://127.0.0.1:6379`) |
+| `redis_url` | string | Redis connection string (e.g., `redis://<redis-ip>:6379`) |
 | `redis_prefix` | string | Prefix for Redis keys to isolate multiple clusters |
 | `enable_dashboard` | bool/null | Explicitly enable/disable the web UI (defaults to `false` if Redis is connected, `true` if Standalone) |
 
