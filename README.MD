@@ -60,6 +60,13 @@ Create a `config.json` file in the project root:
                         { "type": "Ping", "count": 4, "timeout_ms": 1000 },
                         { "type": "TcpPort", "port": 22, "count": 2 }
                     ]
+                },
+                {
+                    "name": "Website",
+                    "address": "https://example.com",
+                    "checks": [
+                        { "type": "Http", "method": "GET", "expected_status": 200 }
+                    ]
                 }
             ]
         }
@@ -81,27 +88,6 @@ Create a `config.json` file in the project root:
 | `redis_url` | string | Redis connection string (e.g., `redis://<redis-ip>:6379`) |
 | `redis_prefix` | string | Prefix for Redis keys to isolate multiple clusters |
 | `enable_dashboard` | bool/null | Explicitly enable/disable the web UI (defaults to `false` if Redis is connected, `true` if Standalone) |
-
-## Redis Clustering & Caching
-
-SPECTRA supports distributed monitoring across multiple nodes using Redis. When `redis_url` is configured:
-
-1.  **Workload Distribution**: Nodes use a **Fair Round-Robin** algorithm to perfectly balance monitoring tasks. For example, in a two-node cluster, the workload is distributed with a 50/50 split. 
-2.  **Fast Failover**: Node heartbeats are refreshed every 1 second. If a node disconnects, the mesh detects the "timeout" within 5 seconds and redistributes its workload across the remaining healthy nodes.
-3.  **Global Mesh State**: All nodes synchronize results to a high-speed Redis hash. The dashboard (if enabled on a node) provides a unified, cluster-wide view of all monitored resources.
-4.  **Distributed Locking**: A built-in lock mechanism prevents multiple nodes from checking the same endpoint simultaneously during mesh transitions.
-5.  **Config Pruning**: Redundant results from deleted config servers are automatically purged from the Redis mesh state upon startup.
-
-### Clustering Configuration Example
-
-```json
-{
-    "check_interval": 30,
-    "redis_url": "redis://localhost:6379",
-    "redis_prefix": "spectra-prod",
-    "categories": [...]
-}
-```
 
 ## Notifications
 

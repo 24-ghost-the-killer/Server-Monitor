@@ -27,7 +27,8 @@ pub async fn get_stats(
         state.last_results.values().cloned().collect()
     };
     
-    if monitor.config.hide_endpoints {
+    let hide = monitor.config.read().await.hide_endpoints;
+    if hide {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -53,7 +54,7 @@ pub fn create_router(monitor: Arc<Monitor>) -> Router {
 }
 
 pub async fn start_server(monitor: Arc<Monitor>) {
-    let port = monitor.config.api_port;
+    let port = monitor.config.read().await.api_port;
     let app = create_router(monitor);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Dashboard: http://localhost:{}", addr.port());

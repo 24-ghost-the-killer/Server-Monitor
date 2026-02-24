@@ -68,7 +68,20 @@ pub enum CheckType {
         #[serde(default = "default_timeout")]
         timeout_ms: u64,
     },
+    Http {
+        #[serde(default = "default_http_method")]
+        method: Option<String>,
+        #[serde(default = "default_http_status")]
+        expected_status: Option<u16>,
+        contains: Option<String>,
+        #[serde(default = "default_http_timeout")]
+        timeout_ms: Option<u64>,
+    },
 }
 
 pub fn default_ping_count() -> u32 { 1 }
 pub fn default_timeout() -> u64 { 3500 }
+
+pub fn default_http_method() -> Option<String> { Some("GET".to_string()) }
+pub fn default_http_status() -> Option<u16> { Some(200) }
+pub fn default_http_timeout() -> Option<u64> { Some(3500) }

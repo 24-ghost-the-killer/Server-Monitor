@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use surge_ping::{Client as PingClient, Config as PingConfig, PingIdentifier, PingSequence};
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, RwLock};
 use tracing::{error, info, warn};
 
 use crate::config::{MonitorConfig, Server, CheckType};
@@ -19,7 +19,7 @@ use crate::models::{CheckResult, MonitorState, Status};
 use crate::redis_manager::RedisManager;
 
 pub struct Monitor {
-    pub config: MonitorConfig,
+    pub config: Arc<RwLock<MonitorConfig>>,
     ping_client: PingClient,
     pub state: Arc<Mutex<MonitorState>>,
     http_client: reqwest::Client,
@@ -55,7 +55,7 @@ impl Monitor {
         let node_id = format!("{}-{}", hostname, &uuid::Uuid::new_v4().to_string()[..4]);
 
         Ok(Self {
-            config,
+            config: Arc::new(RwLock::new(config)),
             ping_client,
             state: Arc::new(Mutex::new(MonitorState {
                 last_results: HashMap::new(),
@@ -75,7 +75,8 @@ impl Monitor {
         let mut active_keys = std::collections::HashSet::new();
         let now = Utc::now();
 
-        for category in self.config.categories.iter() {
+        let cfg = self.config.read().await;
+        for category in cfg.categories.iter() {
             for server in category.servers.iter() {
                 let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
                     net.hosts().map(|ip| ip.to_string()).collect::<Vec<_>>()
@@ -89,6 +90,7 @@ impl Monitor {
                             CheckType::Ping { .. } => "Ping".into(),
                             CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
                             CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
+                            CheckType::Http { method, .. } => format!("HTTP:{}", method.as_deref().unwrap_or("GET")),
                         };
                         let key = format!("{}-{}-{}-{}", server.name, server.address, address, check_type_name);
                         active_keys.insert(key);
@@ -119,7 +121,8 @@ impl Monitor {
         }
 
         let mut state = self.state.lock().await;
-        for (cat_idx, category) in self.config.categories.iter().enumerate() {
+        let cfg = self.config.read().await;
+        for (cat_idx, category) in cfg.categories.iter().enumerate() {
             for (srv_idx, server) in category.servers.iter().enumerate() {
                 let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
                     net.hosts().map(|ip| ip.to_string()).collect::<Vec<_>>()
@@ -133,6 +136,7 @@ impl Monitor {
                             CheckType::Ping { .. } => "Ping".into(),
                             CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
                             CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
+                            CheckType::Http { method, .. } => format!("HTTP:{}", method.as_deref().unwrap_or("GET")),
                         };
                         let key = format!("{}-{}-{}-{}", server.name, server.address, address, check_type_name);
                         
@@ -161,7 +165,10 @@ impl Monitor {
 
     pub async fn run(self: Arc<Self>) -> Result<()> {
         info!("Engine V4: Turbo Mesh Monitoring Active...");
-        info!("--- Max Concurrency: {} workers ---", self.config.max_concurrency);
+        {
+            let cfg = self.config.read().await;
+            info!("--- Max Concurrency: {} workers ---", cfg.max_concurrency);
+        }
         
         self.initialize_state().await;
         
@@ -252,7 +259,8 @@ impl Monitor {
             let mut performed = 0;
             let mut global_idx = 0;
 
-            for (cat_idx, category) in self.config.categories.iter().enumerate() {
+            let cfg = self.config.read().await;
+            for (cat_idx, category) in cfg.categories.iter().enumerate() {
                 for (srv_idx, server) in category.servers.iter().enumerate() {
                     let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
                         net.hosts().map(|ip| ip.to_string()).collect::<Vec<_>>()
@@ -266,6 +274,7 @@ impl Monitor {
                                 CheckType::Ping { .. } => "Ping".into(),
                                 CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
                                 CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
+                                CheckType::Http { method, .. } => format!("HTTP:{}", method.as_deref().unwrap_or("GET")),
                             };
                             
                             let key = format!("{}-{}-{}-{}", server.name, server.address, address, check_type_name);
@@ -287,8 +296,8 @@ impl Monitor {
                             let cat_name = category.name.clone();
                             let nid_clone = node_id.clone();
                             let key_clone = key.clone();
-                            let interval = self.config.check_interval;
-                            let max_rps = self.config.max_checks_per_second;
+                            let interval = cfg.check_interval;
+                            let max_rps = cfg.max_checks_per_second;
                             
                             tasks.push(tokio::spawn(async move {
                                 if let Some(redis) = &monitor_ref.redis {
@@ -345,7 +354,8 @@ impl Monitor {
                     duration.num_milliseconds() as f64 / 1000.0);
             }
 
-            tokio::time::sleep(Duration::from_secs(self.config.check_interval)).await;
+            let interval = self.config.read().await.check_interval;
+            tokio::time::sleep(Duration::from_secs(interval)).await;
         }
     }
 
@@ -447,6 +457,30 @@ impl Monitor {
                     status,
                     latency_ms: latency,
                     packet_loss: Some(loss),
+                    message: msg,
+                    category_order: 0,
+                    server_order: 0,
+                    check_order: 0,
+                    provider_node: None,
+                }
+            }
+            CheckType::Http { method, expected_status, contains, timeout_ms } => {
+                let url = if target_address.starts_with("http://") || target_address.starts_with("https://") {
+                    target_address.to_string()
+                } else {
+                    format!("http://{}", target_address)
+                };
+                let (status, latency, msg) = self.check_http(&url, method.as_deref(), *expected_status, contains.as_deref(), *timeout_ms).await;
+                CheckResult {
+                    category: String::new(),
+                    server_name: server.name.clone(),
+                    parent_address: server.address.clone(),
+                    target_address: target_address.to_string(),
+                    timestamp,
+                    check_type: format!("HTTP:{}", method.as_deref().unwrap_or("GET")),
+                    status,
+                    latency_ms: latency,
+                    packet_loss: if status { Some(0.0) } else { Some(100.0) },
                     message: msg,
                     category_order: 0,
                     server_order: 0,
@@ -574,6 +608,65 @@ impl Monitor {
         }
     }
 
+    async fn check_http(&self, url: &str, method: Option<&str>, expected_status: Option<u16>, contains: Option<&str>, timeout_ms: Option<u64>) -> (bool, Option<f64>, String) {
+        let method_str = method.unwrap_or("GET");
+        let http_method = match method_str.to_uppercase().as_str() {
+            "POST" => reqwest::Method::POST,
+            "PUT" => reqwest::Method::PUT,
+            "DELETE" => reqwest::Method::DELETE,
+            "HEAD" => reqwest::Method::HEAD,
+            "OPTIONS" => reqwest::Method::OPTIONS,
+            "PATCH" => reqwest::Method::PATCH,
+            _ => reqwest::Method::GET,
+        };
+
+        let timeout = Duration::from_millis(timeout_ms.unwrap_or(3500));
+        let request = self.http_client.request(http_method, url).timeout(timeout).build();
+
+        let req = match request {
+            Ok(r) => r,
+            Err(e) => return (false, None, format!("Request Build Error: {}", e)),
+        };
+
+        let start = std::time::Instant::now();
+        match self.http_client.execute(req).await {
+            Ok(response) => {
+                let latency = start.elapsed().as_secs_f64() * 1000.0;
+                let status_code = response.status().as_u16();
+                
+                let expected_stat = expected_status.unwrap_or(200);
+                if status_code != expected_stat {
+                    return (false, Some(latency), format!("HTTP {}, expected {}", status_code, expected_stat));
+                }
+
+                if let Some(substring) = contains {
+                    match response.text().await {
+                        Ok(body) => {
+                            if !body.contains(substring) {
+                                return (false, Some(latency), format!("Status Code {}, but body missing '{}'", status_code, substring));
+                            } else {
+                                return (true, Some(latency), format!("Status Code {}", status_code));
+                            }
+                        }
+                        Err(e) => {
+                            return (false, Some(latency), format!("Body read error: {}", e));
+                        }
+                    }
+                }
+
+                (true, Some(latency), format!("Status Code {}", status_code))
+            }
+            Err(e) => {
+                let err_msg = if e.is_timeout() {
+                    "Request Timeout".to_string()
+                } else {
+                    format!("Request error: {}", e)
+                };
+                (false, None, err_msg)
+            }
+        }
+    }
+
     async fn resolve(&self, address: &str) -> Result<IpAddr, String> {
         if let Ok(ip) = address.parse::<IpAddr>() { return Ok(ip); }
         match self.dns_resolver.lookup_ip(address).await {
@@ -616,7 +709,8 @@ impl Monitor {
             return;
         }
 
-        if self.config.webhook_url.is_some() || self.config.ntfy_topic.is_some() {
+        let cfg = self.config.read().await;
+        if cfg.webhook_url.is_some() || cfg.ntfy_topic.is_some() {
             let this = Arc::clone(self);
             tokio::spawn(async move { this.dispatch_notifications(result, old, new_status).await; });
         }
@@ -625,7 +719,8 @@ impl Monitor {
     async fn dispatch_notifications(&self, result: CheckResult, old: Status, new: Status) {
         info!("Dispatching infrastructure event notification: {} -> {:?}", result.server_name, new);
         
-        if let Some(topic) = &self.config.ntfy_topic {
+        let cfg = self.config.read().await;
+        if let Some(topic) = &cfg.ntfy_topic {
             let priority = if new == Status::Down { "5" } else { "3" };
             let title = format!("{} -> {:?}", result.target_address, new);
             let body = format!("{}: {}", result.check_type, result.message);
@@ -647,7 +742,7 @@ impl Monitor {
             }
         }
 
-        if let Some(url) = &self.config.webhook_url {
+        if let Some(url) = &cfg.webhook_url {
             if url.contains("discord.com") {
                 self.send_discord_webhook(url, result, old, new).await;
             } else {

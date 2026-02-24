@@ -103,19 +103,19 @@ impl RedisManager {
         res.is_some()
         }
 
-        pub async fn is_rate_limited(&self, max_per_second: u64) -> Result<bool> {
-            let mut conn = self.client.get_multiplexed_async_connection().await?;
-            let now = chrono::Utc::now().timestamp();
-            let key = format!("{}:ratelimit:{}", self.prefix, now);
-            
-            let count: u64 = conn.incr(&key, 1).await?;
-            if count == 1 {
-                let _: () = conn.expire(&key, 2).await?;
-            }
-            
-            Ok(count > max_per_second)
+    pub async fn is_rate_limited(&self, max_per_second: u64) -> Result<bool> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let now = chrono::Utc::now().timestamp();
+        let key = format!("{}:ratelimit:{}", self.prefix, now);
+        
+        let count: u64 = conn.incr(&key, 1).await?;
+        if count == 1 {
+            let _: () = conn.expire(&key, 2).await?;
         }
+        
+        Ok(count > max_per_second)
     }
+}
 
     #[cfg(test)]
     mod tests {
@@ -154,4 +154,5 @@ impl RedisManager {
         
         Ok(())
     }
+
 }
