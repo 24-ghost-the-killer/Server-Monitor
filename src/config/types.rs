@@ -22,8 +22,8 @@ pub struct MonitorConfig {
     pub enable_dashboard: Option<bool>,
 }
 
-fn default_redis_prefix() -> String { "spectra".into() }
-fn default_max_checks_per_second() -> u64 { 50 }
+pub fn default_redis_prefix() -> String { "spectra".into() }
+pub fn default_max_checks_per_second() -> u64 { 50 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Category {
@@ -31,8 +31,8 @@ pub struct Category {
     pub servers: Vec<Server>,
 }
 
-fn default_api_port() -> u16 { 3000 }
-fn default_max_concurrency() -> usize { 1500 }
+pub fn default_api_port() -> u16 { 3000 }
+pub fn default_max_concurrency() -> usize { 1500 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Server {
@@ -43,7 +43,7 @@ pub struct Server {
     pub max_retries: u32,
 }
 
-fn default_max_retries() -> u32 { 1 }
+pub fn default_max_retries() -> u32 { 1 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]

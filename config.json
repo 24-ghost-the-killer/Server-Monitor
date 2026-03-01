@@ -1,5 +1,5 @@
 {
-    "check_interval": 20,
+    "check_interval": 30,
     "webhook_url": null,
     "ntfy_topic": "spectra_notifications",
     "api_port": 3000,
@@ -161,24 +161,6 @@
                         }
                     ],
                     "max_retries": 2
-                }
-            ]
-        },
-        {
-            "name": "Web Services",
-            "servers": [
-                {
-                    "name": "Main Website",
-                    "address": "http://localhost:3000",
-                    "checks": [
-                        {
-                            "type": "Http",
-                            "method": "GET",
-                            "expected_status": 200,
-                            "timeout_ms": 2000
-                        }
-                    ],
-                    "max_retries": 1
                 }
             ]
         }
