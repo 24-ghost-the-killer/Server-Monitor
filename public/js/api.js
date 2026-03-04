@@ -21,10 +21,27 @@ async function fetchTelemetry(showVisuals = true) {
         const res = await fetch('api/stats');
         if (!res.ok) throw new Error('API request failed');
         const data = await res.json();
-        telemetry = data;
+
+        let flatTelemetry = [];
+        if (Array.isArray(data)) {
+            flatTelemetry = data;
+        } else if (data && data.categories) {
+            data.categories.forEach(cat => {
+                cat.servers.forEach(srv => {
+                    srv.checks.forEach(chk => {
+                        chk.category = cat.name;
+                        chk.server_name = srv.name;
+                        chk.parent_address = srv.address;
+                        flatTelemetry.push(chk);
+                    });
+                });
+            });
+        }
+
+        telemetry = flatTelemetry;
 
         const hostsMap = {};
-        data.forEach(d => {
+        telemetry.forEach(d => {
             const addr = d.target_address || "unknown";
             if (!hostsMap[addr]) hostsMap[addr] = [];
             hostsMap[addr].push(d);
@@ -40,7 +57,7 @@ async function fetchTelemetry(showVisuals = true) {
             else failedNodes++;
         });
 
-        const responders = data.filter(d => getLat(d) > 0);
+        const responders = telemetry.filter(d => getLat(d) > 0);
         const sumLat = responders.reduce((acc, curr) => acc + getLat(curr), 0);
         const avgLat = responders.length > 0 ? (sumLat / responders.length) : 0;
 
@@ -71,7 +88,7 @@ async function fetchTelemetry(showVisuals = true) {
         };
 
         const elapsed = Date.now() - startTime;
-        const minimumDuration = showVisuals ? 3000 : 0;
+        const minimumDuration = showVisuals ? 1000 : 0;
         const remaining = Math.max(0, minimumDuration - elapsed);
 
         setTimeout(() => {

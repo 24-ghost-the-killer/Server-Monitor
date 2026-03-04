@@ -17,7 +17,7 @@ A high-performance, asynchronous "Turbo Mesh" monitoring system built with Rust.
 
 A public instance of the dashboard is available for preview:
 
-[http://5.175.246.32:3000/](http://5.175.246.32:3000/)
+[http://5.231.120.78:3000/](http://5.231.120.78:3000/)
 
 ## Getting Started
 

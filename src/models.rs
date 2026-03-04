@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Status {
@@ -26,10 +28,10 @@ pub struct CheckResult {
     pub provider_node: Option<String>,
 }
 
+
+
 impl CheckResult {
     pub fn mask_addresses(&mut self) {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
 
         let old_target = self.target_address.clone();
         let old_parent = self.parent_address.clone();
@@ -49,8 +51,31 @@ impl CheckResult {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CategoryStats {
+    pub name: String,
+    pub servers: Vec<ServerStats>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServerStats {
+    pub name: String,
+    pub address: String,
+    pub status: Status,
+    pub checks: Vec<CheckResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StatsResponse {
+    pub node_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub categories: Vec<CategoryStats>,
+}
+
 pub struct MonitorState {
     pub last_results: HashMap<String, CheckResult>,
     pub node_id: String,
     pub live_nodes: Vec<String>,
+    pub last_loss_alerts: HashMap<String, f64>,
 }
+

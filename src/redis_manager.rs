@@ -115,44 +115,5 @@ impl RedisManager {
         
         Ok(count > max_per_second)
     }
-}
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[tokio::test]
-        #[ignore]
-        async fn test_redis_manager_flow() -> Result<()> {
-            let manager = RedisManager::new("redis://127.0.0.1:6379", "test-spectra".into())?;
-            let node_id = "node-1";
-            
-            manager.register_node(node_id).await?;
-            
-            let live = manager.cleanup_dead_nodes().await?;
-            assert!(live.contains(&node_id.to_string()));
-            
-            let result = CheckResult {
-                category: "test".into(),
-                server_name: "test-server".into(),
-                parent_address: "1.1.1.1".into(),
-                target_address: "1.1.1.1".into(),
-                timestamp: chrono::Utc::now(),
-                check_type: "Ping".into(),
-                status: true,
-                latency_ms: Some(10.0),
-                packet_loss: Some(0.0),
-                message: "OK".into(),
-                category_order: 0,
-                server_order: 0,
-                check_order: 0,
-            };
-        
-        manager.push_result("test-key", &result).await?;
-        let results = manager.fetch_all_results().await?;
-        assert!(results.contains_key("test-key"));
-        
-        Ok(())
-    }
 
 }

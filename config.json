@@ -1,14 +1,11 @@
 {
-    "check_interval": 30,
-    "webhook_url": null,
-    "ntfy_topic": "spectra_notifications",
-    "api_port": 3000,
+    "check_interval": 10,
+    "packet_loss_threshold": 20.0,
     "max_concurrency": 99,
     "hide_endpoints": true,
-    "redis_url": "redis://5.175.246.32:6379",
-    "redis_prefix": "spectra",
-    "max_checks_per_second": 50,
     "enable_dashboard": true,
+    "ntfy_topic": "spectra_notifications",
+    "redis_url": "redis://5.231.120.78:6379",
     "categories": [
         {
             "name": "Roleplay Servers",
@@ -16,6 +13,8 @@
                 {
                     "name": "Legacy RP",
                     "address": "162.19.126.43",
+                    "max_retries": 2,
+                    "packet_loss_threshold": 15.0,
                     "checks": [
                         {
                             "type": "Ping",
@@ -25,15 +24,14 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 },
                 {
                     "name": "Destiny",
                     "address": "45.8.187.161",
+                    "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
@@ -43,15 +41,14 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 },
                 {
                     "name": "OdessaRP 3.5",
                     "address": "195.60.166.71",
+                    "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
@@ -61,11 +58,9 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 }
             ]
         },
@@ -74,7 +69,8 @@
             "servers": [
                 {
                     "name": "XPvP 2.0",
-                    "address": "5.175.246.20",
+                    "address": "5.231.120.81",
+                    "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
@@ -84,15 +80,14 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 },
                 {
                     "name": "Last PvP",
                     "address": "5.231.120.22",
+                    "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
@@ -102,15 +97,14 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 },
                 {
                     "name": "Arena",
                     "address": "151.242.106.25",
+                    "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
@@ -120,15 +114,14 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 },
                 {
                     "name": "V3 PvP",
                     "address": "151.242.106.62",
+                    "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
@@ -138,15 +131,14 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 },
                 {
                     "name": "RSM Freeroam",
                     "address": "15.235.28.63",
+                    "max_retries": 2,
                     "checks": [
                         {
                             "type": "Ping",
@@ -156,11 +148,9 @@
                         {
                             "type": "TcpPort",
                             "port": 30120,
-                            "count": 1,
                             "timeout_ms": 1000
                         }
-                    ],
-                    "max_retries": 2
+                    ]
                 }
             ]
         }

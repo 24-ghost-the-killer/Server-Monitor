@@ -1,3 +1,14 @@
+function init() {
+    expandedNodes.add('initialized');
+    expandedNodes.add('section-operational');
+    expandedNodes.add('section-degraded');
+}
+
+function updateSearch(q) {
+    query = q.toLowerCase();
+    render();
+}
+
 function render() {
     const onlineContainer = document.getElementById('online-categories-container');
     const offlineContainer = document.getElementById('offline-categories-container');
@@ -23,8 +34,8 @@ function render() {
     toggleSectionContent('online-categories-container', 'section-operational', 'chevron-operational');
     toggleSectionContent('offline-categories-container', 'section-degraded', 'chevron-degraded');
 
-    onlineContainer.innerHTML = renderTree(upItems, 'up');
-    offlineContainer.innerHTML = renderTree(downItems, 'down');
+    onlineContainer.innerHTML = renderTree(upItems, 'up', new Set());
+    offlineContainer.innerHTML = renderTree(downItems, 'down', new Set());
 
     lucide.createIcons();
 }
@@ -40,7 +51,7 @@ function toggleSectionContent(containerId, sectionKey, chevronId) {
     }
 }
 
-function renderTree(items, sectionId) {
+function renderTree(items, sectionId, intelNodesSet) {
     const categoryGroups = {};
     items.forEach(d => {
         const cat = d.category || "Uncategorized";
@@ -92,11 +103,12 @@ function renderTree(items, sectionId) {
                         <div class="tbl-col tbl-col--status">STATUS</div>
                         <div class="tbl-col tbl-col--latency">TELEMETRY</div>
                         <div class="tbl-col tbl-col--detail">DIAGNOSIS</div>
+                        <div class="tbl-col tbl-col--actions"></div>
                     </div>
                     <div class="tbl-body">
-                        ${groupKeys.map(gKey => {
+        ${groupKeys.map(gKey => {
             const [sName, pAddr] = gKey.split('||');
-            return renderServerGroup(sName, pAddr, category.groups[gKey].items, catId);
+            return renderServerGroup(sName, pAddr, category.groups[gKey].items, catId, intelNodesSet);
         }).join('')}
                     </div>
                 </div>
@@ -107,20 +119,22 @@ function renderTree(items, sectionId) {
     return html;
 }
 
-function renderServerGroup(sName, parentAddr, items, catId) {
+function renderServerGroup(sName, parentAddr, items, catId, intelNodesSet) {
     const isSubnet = parentAddr.includes("/") && !parentAddr.endsWith("/32");
-
     const groupKey = `group:${catId}:${sName}:${parentAddr}`;
     const isExpanded = expandedNodes.has(groupKey);
 
     const clusterStatus = items.every(i => i.status);
     const clusterPings = items.map(i => getLat(i)).filter(l => l > 0);
     const avgLatency = clusterPings.length > 0 ? (clusterPings.reduce((a, c) => a + c, 0) / clusterPings.length).toFixed(1) + 'ms' : '--';
-
     const clusterLossItems = items.map(i => i.packet_loss).filter(l => l !== null && typeof l === 'number');
     const avgLossVal = clusterLossItems.length > 0 ? (clusterLossItems.reduce((a, c) => a + c, 0) / clusterLossItems.length) : null;
-    const avgLossText = avgLossVal !== null ? avgLossVal.toFixed(1) + '%' : '--';
 
+    const formatLoss = (val) => {
+        if (val === 0) return "0%";
+        const formatted = val.toFixed(val < 1 ? 2 : 1).replace(/\.?0+$/, "");
+        return `${formatted}%`;
+    };
     let status = clusterStatus ? "online" : "degraded";
 
     const isMasked = parentAddr === 'HIDDEN' || (parentAddr && parentAddr.startsWith('MASKED-')) || (parentAddr && parentAddr.includes('***'));
@@ -146,17 +160,17 @@ function renderServerGroup(sName, parentAddr, items, catId) {
             <div class="tbl-col tbl-col--latency">
                 <div class="metric-suite">
                     <span class="latency-value">${avgLatency}</span>
-                    ${avgLossVal !== null ? `
-                        <div class="loss-box ${avgLossVal === 0 ? 'stable' : ''}">
-                            ${avgLossVal.toFixed(1)}%
-                        </div>
-                    ` : ''}
+                    ${avgLossVal !== null ? `<div class="loss-box ${avgLossVal === 0 ? 'stable' : ''}">${formatLoss(avgLossVal)}</div>` : ''}
                 </div>
             </div>
             <div class="tbl-col tbl-col--detail">
-                <span style="color: hsl(var(--foreground-subtle)); font-size: 10px; letter-spacing: 0.02em;">
-                    ${isSubnet ? `${new Set(items.map(i => i.target_address)).size} ACTIVE NODES` : (isMasked ? "" : "SINGLE ENDPOINT")}
-                </span>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <span style="color: hsl(var(--foreground-subtle)); font-size: 10px; letter-spacing: 0.02em;">
+                        ${isSubnet ? `${new Set(items.map(i => i.target_address)).size} ACTIVE NODES` : (isMasked ? "" : "SINGLE ENDPOINT")}
+                    </span>
+                </div>
+            </div>
+            <div class="tbl-col tbl-col--actions">
             </div>
         </div>
     `;
@@ -168,14 +182,11 @@ function renderServerGroup(sName, parentAddr, items, catId) {
                 if (!ipGroups[item.target_address]) ipGroups[item.target_address] = [];
                 ipGroups[item.target_address].push(item);
             });
-
             const sortedIps = Object.keys(ipGroups).sort(compareIPs);
             sortedIps.forEach(ip => {
                 const ipItems = ipGroups[ip];
                 const ipKey = `ip:${groupKey}:${ip}`;
                 const isIpExpanded = expandedNodes.has(ipKey);
-                const ipStatus = ipItems.every(i => i.status) ? "online" : "offline";
-
                 const ipPings = ipItems.map(i => getLat(i)).filter(l => l > 0);
                 const ipAvgLat = ipPings.length > 0 ? (ipPings.reduce((a, c) => a + c, 0) / ipPings.length).toFixed(1) + 'ms' : '--';
 
@@ -200,18 +211,15 @@ function renderServerGroup(sName, parentAddr, items, catId) {
                                 ${(() => {
                         const ipLosses = ipItems.map(i => i.packet_loss).filter(l => l !== null && typeof l === 'number');
                         const ipAvgLoss = ipLosses.length > 0 ? (ipLosses.reduce((a, c) => a + c, 0) / ipLosses.length) : 0;
-                        return `
-                                        <div class="loss-box ${ipAvgLoss === 0 ? 'stable' : ''}" style="opacity: 0.7;">
-                                            ${ipAvgLoss.toFixed(1)}%
-                                        </div>
-                                    `;
+                        return `<div class="loss-box ${ipAvgLoss === 0 ? 'stable' : ''}" style="opacity: 0.7;">${formatLoss(ipAvgLoss)}</div>`;
                     })()}
                             </div>
                         </div>
                         <div class="tbl-col tbl-col--detail"></div>
+                        <div class="tbl-col tbl-col--actions">
+                        </div>
                     </div>
                 `;
-
                 if (isIpExpanded) {
                     ipItems.sort((a, b) => (a.check_order ?? 0) - (b.check_order ?? 0)).forEach(check => {
                         html += renderCheckRow(check, "tbl-row--indent2");
@@ -233,7 +241,6 @@ function renderCheckRow(check, indentClass) {
     let cLat = cLatVal > 0 ? cLatVal.toFixed(2) + 'ms' : '--';
     const isSmartVerified = (check.message || "").toLowerCase().includes("verified via");
     const isFault = (check.message || "").toLowerCase().includes("fault") || (check.message || "").toLowerCase().includes("loss");
-
     const provider = check.provider_node ? check.provider_node.slice(0, 4).toUpperCase() : "---";
 
     return `
@@ -250,11 +257,7 @@ function renderCheckRow(check, indentClass) {
             <div class="tbl-col tbl-col--latency">
                 <div class="metric-suite">
                     <span class="latency-value">${cLat}</span>
-                    ${check.packet_loss !== null && typeof check.packet_loss === 'number' ? `
-                        <div class="loss-box ${check.packet_loss === 0 ? 'stable' : ''}">
-                            ${check.packet_loss.toFixed(1)}%
-                        </div>
-                    ` : ''}
+                    ${check.packet_loss !== null && typeof check.packet_loss === 'number' ? `<div class="loss-box ${check.packet_loss === 0 ? 'stable' : ''}">${check.packet_loss === 0 ? "0%" : `${check.packet_loss.toFixed(1)}%`}</div>` : ''}
                 </div>
             </div>
             <div class="tbl-col tbl-col--detail">
@@ -265,9 +268,12 @@ function renderCheckRow(check, indentClass) {
                     </span>
                 </div>
             </div>
+            <div class="tbl-col tbl-col--actions">
+            </div>
         </div>
     `;
 }
+
 
 function toggleNode(key) {
     if (expandedNodes.has(key)) expandedNodes.delete(key);
@@ -276,3 +282,8 @@ function toggleNode(key) {
 }
 
 window.toggleNode = toggleNode;
+window.toggleNode = toggleNode;
+window.updateSearch = updateSearch;
+window.init = init;
+window.render = render;
+window.telemetry = telemetry;

@@ -522,7 +522,7 @@ body {
 .tbl-head,
 .tbl-row {
     display: grid;
-    grid-template-columns: minmax(280px, 1.2fr) 120px 160px 1fr;
+    grid-template-columns: minmax(280px, 1.2fr) 120px 160px 1fr 40px;
     align-items: center;
     gap: 12px;
 }
@@ -1029,7 +1029,7 @@ body {
 
     .tbl-head,
     .tbl-row {
-        grid-template-columns: 1fr 100px 90px 0px 36px;
+        grid-template-columns: 1fr 100px 90px 40px;
     }
 
     .tbl-col--detail {

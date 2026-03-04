@@ -1,10 +1,8 @@
-// Event Listeners
 document.getElementById('search-box').addEventListener('input', (e) => {
     query = e.target.value.toLowerCase();
     render();
 });
 
-// Clock and Polling Loop
 setInterval(() => {
     const now = new Date();
     const clock = document.getElementById('clock-text');
@@ -30,6 +28,5 @@ setInterval(() => {
     }
 }, 1000);
 
-// Initial Load
 fetchTelemetry(false);
 lucide.createIcons();

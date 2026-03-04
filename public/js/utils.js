@@ -21,7 +21,7 @@ function getLat(check) {
 }
 
 function getIcon(type) {
-    if (type.includes("PING")) return "activity";
+    if (type.includes("PING") || type.includes("ICMP")) return "activity";
     if (type.includes("TCP")) return "shield";
     if (type.includes("UDP")) return "zap";
     if (type.includes("HTTP")) return "globe";

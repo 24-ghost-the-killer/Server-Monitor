@@ -27,8 +27,8 @@ impl Monitor {
     pub async fn perform_check(&self, server: &Server, target_address: &str, check: &CheckType) -> CheckResult {
         let timestamp = Utc::now();
         match check {
-            CheckType::Ping { count, timeout_ms } => {
-                let (mut status, mut latency, mut loss, mut msg) = self.check_ping(target_address, *count, *timeout_ms).await;
+            CheckType::Ping { count, timeout_ms, simulate_loss } => {
+                let (mut status, mut latency, mut loss, mut msg) = self.check_ping(target_address, *count, *timeout_ms, *simulate_loss).await;
                 
                 if !status {
                     const DISCOVERY_PORTS: &[(u16, &str)] = &[
@@ -51,7 +51,7 @@ impl Monitor {
                             status = true;
                             latency = p_latency; 
                             loss = Some(0.0);
-                            msg = format!("ICMP Blocked (Handshake verified via {} - {}ms)", 
+                            msg = format!("Blocked (Handshake verified via {} - {}ms)", 
                                 name, 
                                 p_latency.map_or("N/A".to_string(), |l| format!("{:.1}", l)));
                             break;
@@ -65,7 +65,7 @@ impl Monitor {
                     parent_address: server.address.clone(),
                     target_address: target_address.to_string(),
                     timestamp,
-                    check_type: "Ping".into(),
+                    check_type: "ICMP".into(),
                     status,
                     latency_ms: latency,
                     packet_loss: loss,
@@ -76,8 +76,8 @@ impl Monitor {
                     provider_node: None,
                 }
             }
-            CheckType::TcpPort { port, count, timeout_ms } => {
-                let (status, latency, loss, msg) = self.check_tcp_port(target_address, *port, *count, *timeout_ms).await;
+            CheckType::TcpPort { port, count, timeout_ms, simulate_loss } => {
+                let (status, latency, loss, msg) = self.check_tcp_port(target_address, *port, *count, *timeout_ms, *simulate_loss).await;
                 CheckResult {
                     category: String::new(),
                     server_name: server.name.clone(),
@@ -95,8 +95,8 @@ impl Monitor {
                     provider_node: None,
                 }
             }
-            CheckType::UdpPort { port, count, timeout_ms } => {
-                let (status, latency, loss, msg) = self.check_udp_port(target_address, *port, *count, *timeout_ms).await;
+            CheckType::UdpPort { port, count, timeout_ms, simulate_loss } => {
+                let (status, latency, loss, msg) = self.check_udp_port(target_address, *port, *count, *timeout_ms, *simulate_loss).await;
                 CheckResult {
                     category: String::new(),
                     server_name: server.name.clone(),
@@ -137,11 +137,11 @@ impl Monitor {
                     check_order: 0,
                     provider_node: None,
                 }
-            }
         }
     }
+}
 
-    pub async fn check_ping(&self, address: &str, count: u32, timeout_ms: u64) -> (bool, Option<f64>, Option<f64>, String) {
+    pub async fn check_ping(&self, address: &str, count: u32, timeout_ms: u64, simulate_loss: Option<f64>) -> (bool, Option<f64>, Option<f64>, String) {
         let ip = match self.resolve(address).await {
             Ok(ip) => ip,
             Err(e) => return (false, None, None, format!("Domain Resolution Error: {}", e)),
@@ -159,6 +159,11 @@ impl Monitor {
         let mut total_latency = 0.0;
 
         for i in 0..count {
+            if let Some(sim_loss) = simulate_loss {
+                if rand::random::<f64>() * 100.0 < sim_loss {
+                    continue;
+                }
+            }
             match pinger.ping(PingSequence(i as u16), &payload).await {
                 Ok((_, latency)) => {
                     received += 1;
@@ -172,10 +177,27 @@ impl Monitor {
         }
 
         let loss = ((count - received) as f64 / count as f64) * 100.0;
-        if received > 0 {
-            (true, Some(total_latency / received as f64), Some(loss), "ICMP Connection: Verified".into())
+        
+        let final_loss = if let Some(sim) = simulate_loss {
+             if sim > loss { sim } else { loss }
         } else {
-            (false, None, Some(100.0), "Signal Loss Detected".into())
+            loss
+        };
+
+        if received > 0 {
+            let msg = if final_loss > 0.0 {
+                format!("Connection: Verified ({:.1}% Loss)", final_loss).replace(".0%", "%")
+            } else {
+                "Connection: Verified".into()
+            };
+            (true, Some(total_latency / received as f64), Some(final_loss), msg)
+        } else {
+            let msg = if final_loss < 100.0 {
+                 format!("Signal Loss Detected ({:.1}% Loss)", final_loss).replace(".0%", "%")
+            } else {
+                 "Signal Loss Detected (100% Loss)".into()
+            };
+            (false, None, Some(final_loss), msg)
         }
     }
 
@@ -198,12 +220,18 @@ impl Monitor {
         (false, None, last_error)
     }
 
-    pub async fn check_tcp_port(&self, address: &str, port: u16, count: u32, timeout_ms: u64) -> (bool, Option<f64>, f64, String) {
+    pub async fn check_tcp_port(&self, address: &str, port: u16, count: u32, timeout_ms: u64, simulate_loss: Option<f64>) -> (bool, Option<f64>, f64, String) {
         let mut received = 0;
         let mut total_latency = 0.0;
-        let mut last_error = String::from("TCP Handshake Failure");
+        let mut last_error = String::from("Connection Rejected");
 
         for i in 0..count {
+            if let Some(sim_loss) = simulate_loss {
+                if rand::random::<f64>() * 100.0 < sim_loss {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+            }
             let (status, latency, msg) = Self::raw_tcp_check(address, port, timeout_ms).await;
             if status {
                 received += 1;
@@ -217,19 +245,41 @@ impl Monitor {
         }
 
         let loss = ((count - received) as f64 / count as f64) * 100.0;
-        if received > 0 {
-            (true, Some(total_latency / received as f64), loss, "Connection Established".into())
+        let final_loss = if let Some(sim) = simulate_loss {
+            if sim > loss { sim } else { loss }
         } else {
-            (false, None, 100.0, last_error)
+            loss
+        };
+
+        if received > 0 {
+            let msg = if final_loss > 0.0 {
+                format!("Connection Established ({:.1}% Loss)", final_loss).replace(".0%", "%")
+            } else {
+                "Connection Established".into()
+            };
+            (true, Some(total_latency / received as f64), final_loss, msg)
+        } else {
+            let msg = if final_loss < 100.0 {
+                format!("{} ({:.1}% Loss)", last_error, final_loss).replace(".0%", "%")
+            } else {
+                format!("{} (100% Loss)", last_error)
+            };
+            (false, None, final_loss, msg)
         }
     }
 
-    pub async fn check_udp_port(&self, address: &str, port: u16, count: u32, timeout_ms: u64) -> (bool, Option<f64>, f64, String) {
+    pub async fn check_udp_port(&self, address: &str, port: u16, count: u32, timeout_ms: u64, simulate_loss: Option<f64>) -> (bool, Option<f64>, f64, String) {
         let mut received = 0;
         let mut total_latency = 0.0;
-        let mut last_error = String::from("UDP Broadcast Failure");
+        let mut last_error = String::from("Connection Rejected");
 
         for i in 0..count {
+            if let Some(sim_loss) = simulate_loss {
+                if rand::random::<f64>() * 100.0 < sim_loss {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+            }
             let addr = format!("{}:{}", address, port);
             let start = std::time::Instant::now();
             let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await;
@@ -251,10 +301,26 @@ impl Monitor {
         }
 
         let loss = ((count - received) as f64 / count as f64) * 100.0;
-        if received > 0 {
-            (true, Some(total_latency / received as f64), loss, "UDP Traffic: Active Flow".into())
+        let final_loss = if let Some(sim) = simulate_loss {
+            if sim > loss { sim } else { loss }
         } else {
-            (false, None, 100.0, last_error)
+            loss
+        };
+
+        if received > 0 {
+            let msg = if final_loss > 0.0 {
+                format!("Traffic: Active Flow ({:.1}% Loss)", final_loss).replace(".0%", "%")
+            } else {
+                "Traffic: Active Flow".into()
+            };
+            (true, Some(total_latency / received as f64), final_loss, msg)
+        } else {
+             let msg = if final_loss < 100.0 {
+                format!("{} ({:.1}% Loss)", last_error, final_loss).replace(".0%", "%")
+            } else {
+                format!("{} (100% Loss)", last_error)
+            };
+            (false, None, final_loss, msg)
         }
     }
 
@@ -286,7 +352,7 @@ impl Monitor {
                 
                 let expected_stat = expected_status.unwrap_or(200);
                 if status_code != expected_stat {
-                    return (false, Some(latency), format!("HTTP {}, expected {}", status_code, expected_stat));
+                    return (false, Some(latency), format!("Status Code {}, expected {}", status_code, expected_stat));
                 }
 
                 if let Some(substring) = contains {

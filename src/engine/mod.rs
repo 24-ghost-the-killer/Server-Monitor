@@ -29,6 +29,7 @@ pub struct Monitor {
     pub redis: Option<RedisManager>,
 }
 
+
 impl Monitor {
     pub async fn new(config: MonitorConfig) -> Result<Self> {
         let ping_client = PingClient::new(&PingConfig::default())
@@ -62,6 +63,7 @@ impl Monitor {
                 last_results: HashMap::new(),
                 node_id,
                 live_nodes: Vec::new(),
+                last_loss_alerts: HashMap::new(),
             })),
             http_client: reqwest::Client::new(),
             concurrency_limiter: Arc::new(Semaphore::new(max_concurrent)),
@@ -69,6 +71,7 @@ impl Monitor {
             redis,
         })
     }
+
 
     pub async fn initialize_state(&self) {
         info!("Initializing infrastructure mesh state...");
@@ -88,7 +91,7 @@ impl Monitor {
                 for address in addresses {
                     for check in server.checks.iter() {
                         let check_type_name = match check {
-                            CheckType::Ping { .. } => "Ping".into(),
+                            CheckType::Ping { .. } => "ICMP".into(),
                             CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
                             CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
                             CheckType::Http { method, .. } => format!("HTTP:{}", method.as_deref().unwrap_or("GET")),
@@ -134,7 +137,7 @@ impl Monitor {
                 for address in addresses {
                     for (chk_idx, check) in server.checks.iter().enumerate() {
                         let check_type_name = match check {
-                            CheckType::Ping { .. } => "Ping".into(),
+                            CheckType::Ping { .. } => "ICMP".into(),
                             CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
                             CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
                             CheckType::Http { method, .. } => format!("HTTP:{}", method.as_deref().unwrap_or("GET")),
@@ -234,6 +237,7 @@ impl Monitor {
             });
         }
 
+        let mut first_run = true;
         loop {
             let interval = self.config.read().await.check_interval;
             let now_ms = Utc::now().timestamp_millis() as u64;
@@ -241,9 +245,10 @@ impl Monitor {
             let next_tick_ms = ((now_ms / interval_ms) + 1) * interval_ms;
             let sleep_ms = next_tick_ms - now_ms;
             
-            if sleep_ms > 0 {
+            if sleep_ms > 40 && !first_run {
                 tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
             }
+            first_run = false;
 
             let start_time = Utc::now();
             let mut tasks = FuturesUnordered::new();
@@ -273,6 +278,7 @@ impl Monitor {
             let cfg = self.config.read().await;
             for (cat_idx, category) in cfg.categories.iter().enumerate() {
                 for (srv_idx, server) in category.servers.iter().enumerate() {
+
                     let addresses = if let Ok(net) = server.address.parse::<IpNet>() {
                         net.hosts().map(|ip| ip.to_string()).collect::<Vec<_>>()
                     } else {
@@ -282,7 +288,7 @@ impl Monitor {
                     for address in addresses {
                         for (chk_idx, check) in server.checks.iter().enumerate() {
                             let check_type_name = match check {
-                                CheckType::Ping { .. } => "Ping".into(),
+                                CheckType::Ping { .. } => "ICMP".into(),
                                 CheckType::TcpPort { port, .. } => format!("TCP:{}", port),
                                 CheckType::UdpPort { port, .. } => format!("UDP:{}", port),
                                 CheckType::Http { method, .. } => format!("HTTP:{}", method.as_deref().unwrap_or("GET")),
@@ -372,15 +378,56 @@ impl Monitor {
         let key = format!("{}-{}-{}-{}", result.server_name, result.parent_address, result.target_address, result.check_type);
         let new_status = if result.status { Status::Up } else { Status::Down };
         
+        // Fetch config once at the start
+        let cfg = self.config.read().await;
+        
         if let Some(redis) = &self.redis {
             let _ = redis.push_result(&key, &result).await;
         }
 
+
         let mut state_lock = self.state.lock().await;
         let old_result = state_lock.last_results.get(&key).cloned();
-        state_lock.last_results.insert(key, result.clone());
-        drop(state_lock);
+        state_lock.last_results.insert(key.clone(), result.clone());
 
+        let global_threshold = cfg.packet_loss_threshold;
+
+        let threshold = {
+            let mut t = global_threshold;
+            for cat in &cfg.categories {
+                if cat.name == result.category {
+                    for srv in &cat.servers {
+                        if srv.name == result.server_name {
+                            if let Some(st) = srv.packet_loss_threshold {
+                                t = st;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            t
+        };
+
+        if let Some(loss) = result.packet_loss {
+            let last_alert_loss = state_lock.last_loss_alerts.get(&key).cloned().unwrap_or(0.0);
+            
+            if loss >= threshold && last_alert_loss < threshold && result.status {
+                state_lock.last_loss_alerts.insert(key.clone(), loss);
+                let this = Arc::clone(self);
+                let res_clone = result.clone();
+                tokio::spawn(async move { this.dispatch_loss_notification(res_clone, loss, threshold, true).await; });
+            } 
+
+            else if loss < threshold && last_alert_loss >= threshold {
+                state_lock.last_loss_alerts.remove(&key);
+                let this = Arc::clone(self);
+                let res_clone = result.clone();
+                tokio::spawn(async move { this.dispatch_loss_notification(res_clone, loss, threshold, false).await; });
+            }
+        }
+        drop(state_lock);
+        
         let is_awaiting = old_result.as_ref().map_or(true, |r| r.message == "Awaiting Infrastructure Handshake...");
         let old_status = old_result.map(|r| if r.status { Status::Up } else { Status::Down });
 
@@ -402,7 +449,6 @@ impl Monitor {
             return;
         }
 
-        let cfg = self.config.read().await;
         if cfg.webhook_url.is_some() || cfg.ntfy_topic.is_some() {
             let this = Arc::clone(self);
             tokio::spawn(async move { this.dispatch_notifications(result, old, new_status).await; });

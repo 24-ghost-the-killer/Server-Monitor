@@ -58,6 +58,7 @@ impl Monitor {
             serde_json::json!({ "name": "Transition", "value": format!("{:?} \u{2192} {:?}", old, new), "inline": true }),
             serde_json::json!({ "name": "Protocol", "value": result.check_type, "inline": true }),
             serde_json::json!({ "name": "Telemetry", "value": result.latency_ms.map_or("N/A".to_string(), |l| format!("{:.2}ms", l)), "inline": true }),
+            serde_json::json!({ "name": "Packet Loss", "value": result.packet_loss.map_or("N/A".to_string(), |l| format!("{:.1}%", l)), "inline": true }),
             serde_json::json!({ "name": "Diagnosis", "value": result.message.to_uppercase(), "inline": false })
         ];
 
@@ -74,6 +75,58 @@ impl Monitor {
         let _ = self.http_client.post(url).json(&payload).send().await;
     }
 
+    pub async fn dispatch_loss_notification(&self, mut result: CheckResult, loss: f64, threshold: f64, alert: bool) {
+        if self.config.read().await.hide_endpoints {
+            result.mask_addresses();
+        }
+        
+        let cfg = self.config.read().await;
+        let event_title = if alert {
+            format!("High Packet Loss: {} ({:.1}%)", result.server_name, loss)
+        } else {
+            format!("Packet Loss Recovered: {} ({:.1}%)", result.server_name, loss)
+        };
+
+        info!("Dispatching loss event: {}", event_title);
+
+        if let Some(topic) = &cfg.ntfy_topic {
+            let priority = if alert { "4" } else { "3" };
+            let body = format!("{}: {} at {:.1}% (Threshold: {:.0}%)", result.check_type, result.message, loss, threshold);
+            
+            let req = self.http_client.post(format!("https://ntfy.sh/{}", topic))
+                .header("Title", event_title.clone())
+                .header("Priority", priority)
+                .header("Tags", if alert { "chart_with_downwards_trend" } else { "chart_with_upwards_trend" })
+                .body(body);
+            let _ = req.send().await;
+        }
+
+        if let Some(url) = &cfg.webhook_url {
+            if url.contains("discord.com") {
+                let color = if alert { 0xE67E22 } else { 0x3498DB };
+                let fields = vec![
+                    serde_json::json!({ "name": "Cluster", "value": result.server_name, "inline": true }),
+                    serde_json::json!({ "name": "Event", "value": if alert { "Degraded Connection" } else { "Stability Restored" }, "inline": true }),
+                    serde_json::json!({ "name": "Packet Loss", "value": format!("{:.1}%", loss), "inline": true }),
+                    serde_json::json!({ "name": "Threshold", "value": format!("{:.0}%", threshold), "inline": true }),
+                    serde_json::json!({ "name": "Diagnosis", "value": result.message.to_uppercase(), "inline": false })
+                ];
+
+                let payload = serde_json::json!({
+                    "username": "SPECTRA Engine",
+                    "embeds": [{
+                        "title": event_title,
+                        "color": color,
+                        "fields": fields,
+                        "timestamp": Utc::now().to_rfc3339(),
+                        "footer": { "text": "SPECTRA Infrastructure Intelligence" }
+                    }]
+                });
+                let _ = self.http_client.post(url).json(&payload).send().await;
+            }
+        }
+    }
+
     pub async fn send_generic_webhook(&self, url: &str, result: CheckResult, _old: Status, new: Status) {
         let text = if result.target_address.starts_with("HIDDEN-") {
             format!("SPECTRA Alert: {} is now {:?}", result.server_name, new)
@@ -85,4 +138,5 @@ impl Monitor {
         });
         let _ = self.http_client.post(url).json(&payload).send().await;
     }
+
 }
