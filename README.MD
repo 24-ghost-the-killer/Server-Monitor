@@ -13,12 +13,6 @@ A high-performance, asynchronous "Turbo Mesh" monitoring system built with Rust.
 - **Cloudflare DNS Integration**: Optimized 1.1.1.1 resolution for high-accuracy global monitoring.
 - **Advanced UI HUD**: Glassmorphism dashboard with real-time stats, tree-view hierarchy, and search filtering.
 
-## Live Preview
-
-A public instance of the dashboard is available for preview:
-
-[http://5.231.120.78:3000/](http://5.231.120.78:3000/)
-
 ## Getting Started
 
 ### Installation
